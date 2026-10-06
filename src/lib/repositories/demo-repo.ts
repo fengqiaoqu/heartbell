@@ -5,10 +5,11 @@ import type {
   AnchorJob, BellV2, Benefit, CommitmentPlan, ConnectionV2, DiaryDoc,
   DisputeV2, GoalClaim, LedgerEntry, PromiseDoc, RadarStateV2,
   RelationshipStatus, RewardReservation, ShareGrantV2, TrustSnapshotV2, V2Relationship, V2User,
+  NotificationV2, FeatureConfigV2, ApprovalRequest, NotificationKind,
 } from "../domain/v2-types";
+import { defaultFeatureConfig, defaultSpaceSettings } from "../domain/v2-types";
 import { INVEST_PER_USER, PLAN_TERMS_VERSION, REWARD_POOL_START } from "../domain/plan-rules";
 import { RELATIONSHIP_TERMS_VERSION } from "../domain/relationship";
-import { defaultSpaceSettings } from "../domain/v2-types";
 import { computeTrust } from "../domain/score";
 import { demoImageLibrary } from "./demo-images";
 export { demoImageLibrary };
@@ -30,6 +31,10 @@ export interface V2State {
   benefits: Benefit[];
   anchorJobs: AnchorJob[];
   disputes: DisputeV2[];
+  notifications: NotificationV2[];            // v2.5：站内通知（读取时仍按权限校验）
+  featureConfig: FeatureConfigV2;             // v2.5：功能暂停与公告
+  approvals: ApprovalRequest[];               // v2.5：双人审批队列
+  lastSweepAt: number | null;                 // v2.5：最近一次状态清扫（运行状态展示）
   virtualOffsetMs: number;
 }
 
@@ -47,7 +52,8 @@ export function createDemoState(now: number): V2State {
     users: new Map(), radar: new Map(), bells: [], connections: [], shareGrants: [],
     relationships: [], diaries: [], promises: [], trustSnapshots: [], plans: [],
     ledger: [], reservations: [], claims: [], benefits: [], anchorJobs: [], disputes: [],
-    virtualOffsetMs: 0,
+    notifications: [], featureConfig: { ...defaultFeatureConfig }, approvals: [],
+    lastSweepAt: null, virtualOffsetMs: 0,
   };
   state.users.set("a", {
     id: "a", kind: "demo", adultDeclared: false,
@@ -118,7 +124,7 @@ export function createDemoState(now: number): V2State {
       id: `fx-p-${content.length}-${result}`, relationshipId: fxRel.id, revision: 1,
       content, responsibleUserIds: ["b"], dueAt, criteria: "双方对同一履约证据确认",
       scoringOptIn: !waived, createdAt, status: "active", confirmations: { b: createdAt, [exId]: createdAt },
-      returnedBy: null,
+      returnedBy: null, attachments: [],
       resolutions: {
         b: { result: result as "fulfilled" | "unfulfilled", note: null, settledAt: relEnd + 2 * DAY, confirmedBy: ["b", exId] },
         [exId]: { result: "waived", note: null, settledAt: relEnd + 2 * DAY, confirmedBy: ["b", exId] },
@@ -216,6 +222,29 @@ export function refreshTrustSnapshot(state: V2State, subjectId: string, now: num
 export function currentTrustSnapshot(state: V2State, subjectId: string): TrustSnapshotV2 | null {
   const list = state.trustSnapshots.filter(t => t.subjectId === subjectId && !t.revokedAt);
   return list[list.length - 1] ?? null;
+}
+
+// v2.5：站内通知与业务变化同事务写入；新通知只带事件与对象 ID，读取仍按权限校验。
+// 幂等：同一 objectId+userId+kind+body 只保留一条，避免轮询重复打扰。
+export function pushNotification(
+  state: V2State,
+  entry: { userId: string; kind: NotificationKind; objectId: string; title: string; body: string },
+  now: number,
+): NotificationV2 {
+  const existing = state.notifications.find(n =>
+    n.userId === entry.userId && n.kind === entry.kind && n.objectId === entry.objectId && n.body === entry.body && n.readAt === null);
+  if (existing) return existing;
+  const notification: NotificationV2 = {
+    id: `notice-${Math.random().toString(36).slice(2, 10)}`,
+    userId: entry.userId, kind: entry.kind, objectId: entry.objectId,
+    title: entry.title, body: entry.body, createdAt: now, readAt: null,
+  };
+  state.notifications.push(notification);
+  return notification;
+}
+
+export function unreadNotificationsOf(state: V2State, userId: string): NotificationV2[] {
+  return state.notifications.filter(n => n.userId === userId && n.readAt === null);
 }
 
 export function relationshipStatusOf(state: V2State, userId: string): RelationshipStatus | "none" {

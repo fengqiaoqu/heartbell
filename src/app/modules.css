@@ -13,6 +13,45 @@
 @keyframes hb-enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
 .avatar-button{width:38px;height:38px;border-radius:50%;border:1.5px solid var(--line);background:var(--brand-soft);font-size:19px;cursor:pointer;flex-shrink:0;position:relative}
 .avatar-button .dot{position:absolute;right:-1px;top:-1px;width:9px;height:9px;border-radius:50%;background:var(--brand);border:2px solid #fff}
+/* v2.5：顶栏（铃铛 + 头像） */
+.header-actions{display:flex;align-items:center;gap:10px}
+.bell-button{position:relative;width:36px;height:36px;border-radius:50%;border:1.5px solid var(--line);background:var(--brand-soft);color:var(--brand-deep);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.bell-button svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.badge-num{position:absolute;right:-5px;top:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--danger);color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid #fff;font-style:normal}
+/* v2.5（反馈 4）：底部导航「我们」栏红色数字角标 */
+.notification-count{position:absolute;right:-4px;top:-4px;min-width:16px;height:16px;border-radius:9px;background:var(--danger);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid #fff;font-style:normal}
+/* v2.5：维护公告横幅（后台发布） */
+.maintenance-banner{margin-top:12px;background:#FBF3EC;border:1px solid #EBD9C4;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.7;color:#8A6A5C}
+/* v2.5（反馈 4）：待确认提醒横幅 */
+.pending-banner{margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#FDF1F4;border:1px solid #F2CFDA;border-radius:12px;padding:10px 12px;font-size:12px;color:var(--brand-deep)}
+.pending-banner b{color:var(--danger)}
+/* v2.5（反馈 4）：「我们」页待确认栏 */
+.pending-card{border-left:3px solid var(--danger)}
+.pending-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.pending-head h3{margin:0;font-size:14px}
+.pending-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;border-radius:11px;background:var(--danger);color:#fff;font-size:11px;font-weight:700;padding:0 6px}
+.pending-head small{font-size:10.5px}
+.pending-item{display:flex;gap:11px;width:100%;text-align:left;align-items:center;border:1px solid #F6DDE4;background:#FFF9FA;border-radius:14px;padding:10px 12px;cursor:pointer;font:inherit;color:var(--ink);margin-top:8px}
+.pending-item:hover{border-color:var(--brand)}
+/* v2.5：站内提醒列表 */
+.notice-list{display:grid;gap:8px;margin:10px 0}
+.notice-item{border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:12px;padding:10px 12px;display:grid;gap:3px;font-size:12.5px;background:#FFFDFB}
+.notice-item small{color:var(--muted);font-size:11px;line-height:1.6}
+/* v2.5（反馈 2）：头像点开放大 */
+.avatar-zoom-trigger{position:relative;border:0;background:transparent;padding:0;cursor:zoom-in;flex-shrink:0;display:inline-flex}
+.avatar-zoom-trigger i{position:absolute;right:-3px;bottom:-3px;width:17px;height:17px;border-radius:50%;background:var(--brand);color:#fff;font-size:9px;font-style:normal;display:flex;align-items:center;justify-content:center;border:2px solid #fff}
+.avatar-zoom-stage{display:flex;align-items:center;justify-content:center;padding:16px 0;background:linear-gradient(160deg,#FFF6F0,#FBE8ED);border-radius:18px}
+/* v2.5（反馈 6）：附件上传与展示 */
+.upload-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.upload-chip{display:inline-flex;align-items:center;gap:5px;background:#F6EEF1;border-radius:10px;padding:5px 9px;font-size:11px;color:var(--brand-deep)}
+.upload-chip button{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;padding:0 1px;line-height:1}
+.attachment-view{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.attachment-view img{width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.file-chip{display:inline-flex;align-items:center;gap:5px;background:#F6EEF1;border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:11.5px;color:var(--brand-deep);text-decoration:none;max-width:100%}
+a.file-chip:hover{border-color:var(--brand)}
+/* v2.5：相守页补正表单 */
+.supplement-box{margin-top:10px;border:1px dashed #E4B9C7;background:#FFF9FA;border-radius:12px;padding:11px 12px;font-size:12.5px}
+.supplement-box .button{min-height:40px;padding:8px 14px;font-size:12.5px}
 .phone-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 20px 22px;scrollbar-width:thin;scrollbar-color:#E8D3D9 transparent}
 .bottom-nav{display:flex;flex-shrink:0;padding:8px 4px max(10px,env(safe-area-inset-bottom));background:#fff;border-top:1px solid var(--line)}
 .bottom-nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;border:0;background:transparent;color:#A796A0;font-size:10.5px;cursor:pointer;padding:6px 2px;min-height:48px;font-weight:500}

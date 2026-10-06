@@ -3,6 +3,64 @@
 本文件面向协作者，记录每个版本的修改内容、根因与验证情况。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号与 Git 标签对应。
 
+## [v2.5] - 2026-10-07
+
+依据《v2.5修改.md》6 条建议 + GitHub 提交要求逐条落地。分支 `feature/v2.5-admin-workbench`，标签 `v2.5`。
+《v2.5修改.md》中的“疑问”部分（默认头像、已确认文案、上链信息保留、阶段自动隐藏）按要求**仅记录、未修改**。
+
+### 新增
+
+- **维护后台系统（反馈 1，依据《Heartbell-v2.1-后台设计交付》M1+M2 演示级）**：
+  - 新增 `/admin` 七模块工作台：运行总览、核验工作台、例外与申诉、用户与关系、奖励与账本、存证任务、运行与审计；奶油/玫瑰/深梅侧栏视觉按设计交付 03-UI 规格；
+  - 新增受控接口 `/api/v2/ops/*`（`src/app/api/v2/ops/[...path]/route.ts` + `src/lib/server/ops/`）：管理员会话（HttpOnly Cookie、8h/30min 失效、登录限速、Origin 同源校验）、五角色 RBAC（服务端逐接口校验，隐藏按钮不算数）、全操作审计日志；
+  - **核验闭环**：用户提交申请 → 后台队列真实出现 → 领取工单 → 通过/补正/不通过（原因码+说明+expectedRevision 版本保护）→ 用户端约 3 秒内看到结论与理由，双方收到站内通知；
+  - **补正闭环（衔接缺口 1）**：新增 `POST /api/v2/plans/claims/supplement` 与相守页补正表单——`need_more` 状态下用户补充材料回到 `submitted`，保留原 claimId，材料只追加（`materials[]`），重新计算 7 天审核期限；
+  - **双人审批**：例外退款/维持失效、库存校正、功能配置发布均需第二位管理员批准（申请人≠批准人，409 SECOND_APPROVER_REQUIRED；功能配置仅 owner 可批准）；配置发布为追加新版本（回滚=再发布），历史保留；
+  - **功能暂停与公告（ADM-07）**：`FeatureConfig`（雷达/新计划/存证提交开关 + ≤120 字公告）；服务端同步执行限制（503 MAINTENANCE），用户端 `publicMaintenance` 轮询读取并显示顶部横幅、停用对应按钮；存证暂停期间任务排队不丢内容，恢复后由运维按 jobId 重试；
+  - 例外复核起点 `exceptionOpenedAt`（衔接缺口 4）：所有进入例外状态的路径（用户例外申请/申诉/关系结束/审核超时清扫）统一设置，30 天时限从该点起算；
+  - 履约争议**定向裁定**（衔接缺口 2）：`DisputeV2.subjectUserId` 指向单一责任人，后台按 `disputeId + subjectUserId` 裁定，只改写被复核责任人、只刷新受影响用户的摘要版本（旧批量路径保留为演示台兼容，可选传 subjectUserId）；
+  - **结算预留修正（衔接缺口 3）**：`redeemBenefit` 不再先释放再消费预留，成功结算的预留最终状态为 `consumed`（取消/失效才是 `released`）；
+  - **存证按 jobId 精确重试（衔接缺口 6）**：后台重试按 `jobId + contentVersion` 定位（不沿用 recordId 取第一个任务），保留同一 commitment/salt/版本，attempts 递增；confirmed 禁止重发，unconfigured 显示配置缺口；
+  - 审核决定/补正/复核结论均递增 claim 与 plan 的 revision（衔接缺口 5）。
+- **站内通知（反馈 4）**：`NotificationV2` 与业务变化同事务写入；核验结论、日记/承诺/履约证据待确认均产生提醒；用户端顶部新增铃铛（未读数角标）与通知列表，支持全部已读。
+- **附件上传（反馈 6）**：日记/纪念节点/承诺支持上传 **png / jpg / pdf / md / word（doc·docx）**：每条记录最多 6 个（与演示图合计）、单个 ≤600KB；服务端 `resolveAttachments` 校验扩展名/MIME 一致性/大小/数量并计算内容指纹（进入版本比较与存证 `attachmentHashes`）；查看侧图片出缩略图、文件可下载；仅存本地演示内存仓库。
+- **头像点开放大（反馈 2）**：新增 `AvatarZoom` 组件，「我的」与「了解」页的主要头像位点击后放大查看（230px 舞台 + 放大角标）。
+
+### 修复
+
+- **生成凭证后需关闭界面才显示（反馈 5）**：日记「为这一版生成存证」成功后立即重新拉取详情，弹层内按钮自动变为「查看证据」、状态行出现存证徽标，无需关闭重开。
+- **秒数计时不稳定（反馈 3）**：雷达倒计时取消秒数，只显示分钟（向上取整，不出现“0 分钟”）；底层到期时间计算仍以服务端虚拟时钟为准（v2.2 的防重置修复不受影响）。
+
+### 变更
+
+- 「我们」页新增**待确认栏（反馈 4）**：置顶红色描边卡片汇总所有需要我处理的项目（日记版本确认/承诺确认/履约证据确认/关系邀请），点击直达对应弹层；底部导航「我们」图标右上角改为**红色数字角标**（其余栏保持小圆点）；有待确认事项且不在“我们”页时顶部显示提醒横幅。
+- 用户端「演示说明」折叠区与落地页新增 `/admin` 维护后台入口；旧 `/demo/admin` 演示台保留不动（正式环境服务端同样拒绝）。
+- `package.json` 版本升至 `2.5.0`；新增 `npm run verify:v25`。
+
+### 涉及文件（主要）
+
+| 层 | 文件 |
+|---|---|
+| 领域类型 | `v2-types.ts`（ClaimMaterial/GoalClaim 扩展/NotificationV2/FeatureConfigV2/ApprovalRequest/exceptionOpenedAt/DisputeV2.subjectUserId/AttachmentRef 扩展/上传常量）、`admin-types.ts`（新增）、`view-dtos.ts`（publicMaintenance/notifications/承诺附件） |
+| 服务层 | `plan.ts`（受控审核/补正/预留 consumed/exceptionOpenedAt）、`diary.ts`（附件/通知/定向复核）、`anchor.ts`（暂停排队/jobId 重试）、`meet.ts`+`relationship.ts`（功能开关/例外起点）、`admin.ts`（兼容定向裁定）、`view.ts`（公告/通知/附件透出）、`attachments.ts`（新增） |
+| ops 后台 | `src/lib/server/ops/auth.ts`、`ops-service.ts`（新增）、`src/app/api/v2/ops/[...path]/route.ts`（新增）、`src/app/admin/`（page + admin.css，新增） |
+| 用户端 | `app-shell.tsx`（铃铛/数字角标/公告/提醒）、`us-tab.tsx`（待确认栏/附件/凭证即时刷新）、`future-tab.tsx`（补正表单/维护开关）、`meet-tab.tsx`（分钟倒计时/维护开关）、`me-drawer.tsx`+`know-tab.tsx`（头像放大）、`avatar-zoom.tsx`、`attachment-upload.tsx`（新增）、`modules.css` |
+| 仓库 | `demo-repo.ts`（notifications/featureConfig/approvals/lastSweepAt/pushNotification） |
+| 文档/验证 | `docs/ADMIN.md`（新增）、`_qa/verify-v25.mjs`（新增，68 项） |
+
+### 验证
+
+- 专项：`npm run verify:v25` —— **68 项**对应 6 条反馈与后台闭环逐一通过（含 401/403/409/422/503、版本冲突、双人审批、自批拒绝、补正、定向裁定、预留 consumed、jobId 重试、公告发布与回滚、脱敏与审计）。
+- 回归：`npm run verify:v2` —— 103 项 + 合约 26 项全部通过；`_qa/verify-v22.mjs` 38 项全部通过（其中“倒计时精确到秒”的展示要求已按 v2.5 反馈 3 改为仅分钟，服务端行为不变）。
+- 工程：`npm run typecheck`、干净 `.next` 下 `npm run build` 通过。
+
+### 协作者注意
+
+- **后台为演示级（M1+M2）**：数据仍在内存仓库（重启清空）；`APP_MODE=live` 时登录被拒绝——正式使用前需完成设计 M3（Postgres 持久化、正式管理员账号、事务与后台作业），见 `docs/ADMIN.md` 边界清单。
+- `GoalClaim` 新增 `revision/assignedTo/reasonCode/materials/reviewEvents/lastSupplementAt`，`CommitmentPlan` 新增 `exceptionOpenedAt`，`V2State` 新增 `notifications/featureConfig/approvals/lastSweepAt`：P1 持久化适配器需同步建列。
+- 后台演示账号（owner/owner2/reviewer）仅 demo 模式可用；新增依赖无。
+- 站内通知读取走 `GET /state`（`notifications` 字段）+ `POST /notifications/read`；角标数字由 `us.timeline.needsMyAction` 计数得出。
+
 ## [v2.2] - 2026-10-07
 
 依据《v2.2修改.md》10 条反馈逐条落地。分支 `feature/v2.2-feedback-fixes`，标签 `v2.2`。

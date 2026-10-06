@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { Avatar, Button, Chip } from "../ui";
 import { Modal } from "../modal";
+import { AvatarZoom } from "../avatar-zoom";
 import { WalletPanel } from "../wallet-panel";
 import type { V2StateView } from "../../lib/domain/view-dtos";
 import { ageCohorts, intentionLabels, mbtiOptions, orientationDisplay, orientationLabels, type ContactEntry, type Intention, type Orientation } from "../../lib/domain/v2-types";
@@ -97,7 +98,7 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
   return <>
     <Modal title="我的" onClose={onClose}>
       <div className="profile-head">
-        <Avatar value={p.avatar} size={64} className="reveal-avatar" />
+        <AvatarZoom value={p.avatar} size={64} className="reveal-avatar" />
         <div>
           <h3 style={{ margin: 0 }}>{p.nickname}</h3>
           <span className="intent-badge">意向：{intentionLabels[p.intention]}</span>

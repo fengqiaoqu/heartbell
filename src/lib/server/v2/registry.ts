@@ -53,6 +53,7 @@ export function requireDemoMode(): void {
 // 时间驱动的状态迁移：每次读取状态前调用，保证轮询看到一致的过期/到期结果。
 export function sweep(state: V2State): void {
   const t = now(state);
+  state.lastSweepAt = Date.now();
   // 1. 雷达到期
   for (const radar of state.radar.values()) {
     if (radar.active && radar.expiresAt !== null && radar.expiresAt <= t) radar.active = false;
@@ -84,6 +85,8 @@ export function sweep(state: V2State): void {
       const claim = state.claims.find(c => c.planId === plan.id && (c.status === "submitted" || c.status === "need_more"));
       if (claim?.reviewDeadlineAt && t > claim.reviewDeadlineAt) {
         plan.status = "exception_review"; // 审核超期转入例外复核，不无限停留
+        plan.exceptionOpenedAt ??= t;      // v2.5：例外复核起点，不用 activatedAt 代替
+        plan.revision += 1;
       }
     }
     if (plan.status === "forfeit_pending" && plan.forfeitWindowUntil !== null && t > plan.forfeitWindowUntil) {
@@ -97,13 +100,16 @@ export function sweep(state: V2State): void {
         createBenefitFor(state, plan, t);
       }
     }
-    if (plan.status === "exception_review" && plan.activatedAt) {
-      const dispute = state.disputes.find(d => d.targetId === plan.id && !d.resolvedAt);
-      const started = dispute?.createdAt ?? plan.activatedAt;
-      if (t - started > EXCEPTION_LIMIT_DAYS * DAY) {
+    if (plan.status === "exception_review") {
+      // v2.5：例外时限统一从 exceptionOpenedAt 起算（进入例外状态的各路径都会设置）。
+      const started = plan.exceptionOpenedAt
+        ?? state.disputes.find(d => d.targetId === plan.id && !d.resolvedAt)?.createdAt
+        ?? plan.activatedAt;
+      if (started !== null && started !== undefined && t - started > EXCEPTION_LIMIT_DAYS * DAY) {
         // 例外复核 30 天未完成：演示版按平台无法履约取消并退回双方本金，保留申诉记录
         plan.status = "cancelled";
         plan.endedReason = "exception";
+        plan.revision += 1;
         refundPrincipals(state, plan, t, "exception-timeout");
       }
     }
@@ -128,7 +134,7 @@ export function settleForfeit(state: V2State, plan: CommitmentPlan, t: number): 
   releaseReservation(state, plan);
 }
 
-export function refundPrincipals(state: V2State, plan: CommitmentPlan, t: number, keyPrefix: string): void {
+export function refundPrincipals(state: V2State, plan: CommitmentPlan, t: number, keyPrefix: string, options?: { releaseReservation?: boolean }): void {
   const escrow = `plan:${plan.id}`;
   for (const uid of planMembers(state, plan)) {
     postLedger(state, {
@@ -137,7 +143,9 @@ export function refundPrincipals(state: V2State, plan: CommitmentPlan, t: number
       note: "退回本人投入",
     }, t);
   }
-  releaseReservation(state, plan);
+  // v2.5 修正：达成结算（redeemBenefit）时预留最终状态必须是 consumed 而不是 released；
+  // 只有取消/失效路径才释放预留（released 只表示回到可用库存）。
+  if (options?.releaseReservation !== false) releaseReservation(state, plan);
 }
 
 export function releaseReservation(state: V2State, plan: CommitmentPlan): void {

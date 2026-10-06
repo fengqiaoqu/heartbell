@@ -1,7 +1,7 @@
 // 相遇服务：雷达、摇铃、回响（计划书第 3 节）。所有门槛在服务端校验。
 import type { V2State } from "../../../repositories/demo-repo";
 import { activeRelationshipOf } from "../../../repositories/demo-repo";
-import { badRequest, conflict, forbidden } from "../errors";
+import { ApiError, badRequest, conflict, forbidden } from "../errors";
 import type { Trait } from "../../../domain/v2-types";
 
 const categories = ["穿着", "配饰", "手持物", "当前状态", "其他"] as const;
@@ -18,6 +18,10 @@ export function setRadar(state: V2State, viewer: string, active: boolean, traits
     const radar = state.radar.get(viewer);
     if (radar) { radar.active = false; radar.expiresAt = null; }
     return;
+  }
+  // v2.5：后台功能开关（仅拦截新的开启；已开启的雷达不受影响，可正常关闭）。
+  if (!state.featureConfig.radarNewEnabled) {
+    throw new ApiError(503, "MAINTENANCE", "心动雷达暂停新开启（维护公告期内），已开启的铃声不受影响。", true);
   }
   if (activeRelationshipOf(state, viewer)) {
     throw forbidden("你们的故事正在继续：已有有效关系时，陌生人恋爱雷达已停止。");

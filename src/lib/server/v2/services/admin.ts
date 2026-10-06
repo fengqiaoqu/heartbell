@@ -64,14 +64,19 @@ export function adminResolveException(state: V2State, planId: unknown, decision:
 }
 
 // 演示台解决履约争议：人工复核结论直接落为最终结果，并刷新摘要版本。
-export function adminResolveTrustDispute(state: V2State, promiseId: unknown, finalResult: unknown): void {
+// v2.5：body.subjectUserId 存在时按单一责任人定向裁定（与维护后台一致）；
+// 缺省时保留旧行为（全部责任人同一结论），便于演示台快速模拟。
+export function adminResolveTrustDispute(state: V2State, promiseId: unknown, finalResult: unknown, subjectUserId?: unknown): void {
   requireDemoMode();
   const promise = state.promises.find(p => p.id === promiseId);
   if (!promise) throw badRequest("承诺不存在");
   const result = String(finalResult);
   if (!["fulfilled", "unfulfilled", "waived"].includes(result)) throw badRequest("无效复核结论");
   const t = v2now(state);
-  for (const uid of promise.responsibleUserIds) {
+  const targets = typeof subjectUserId === "string" && promise.resolutions[subjectUserId]
+    ? [subjectUserId]
+    : [...promise.responsibleUserIds];
+  for (const uid of targets) {
     promise.resolutions[uid] = {
       result: result as "fulfilled", note: promise.resolutions[uid]?.note ?? null,
       settledAt: t, confirmedBy: ["demo-admin"],

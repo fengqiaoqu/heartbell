@@ -16,6 +16,7 @@ export default function Home() {
     <div className="entry-links">
       <a className="button" href="/demo/a?tab=meet" target="_blank" rel="noopener noreferrer">打开 A 的窗口 ↗</a>
       <a className="button secondary" href="/demo/b?tab=meet" target="_blank" rel="noopener noreferrer">打开 B 的窗口 ↗</a>
+      <a className="button ghost" href="/admin" target="_blank" rel="noopener noreferrer">维护后台 ↗</a>
       <a className="button ghost" href="/demo/admin" target="_blank" rel="noopener noreferrer">演示审核台 ↗</a>
     </div>
     <img className="four-screens" src="/visuals/heartbell/ui-four-screens.png" alt="四阶段手机界面效果图（视觉参考，实际以窗口内页面为准）" width={1586} height={992} />

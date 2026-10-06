@@ -3,10 +3,21 @@ import type {
   AnchorEvidence, AttachmentRef, CommitmentPlan, GoalClaim, LedgerEntry,
   RelationshipStatus, RewardChoice, RunModes, ShareGrantV2, TimelineKind,
   TrustSnapshotV2, VerificationLevel, Intention, PromiseResolutionResult, Benefit,
-  Orientation, SpaceSettings, V2Profile,
+  Orientation, SpaceSettings, V2Profile, NotificationV2,
 } from "./v2-types";
 
 export interface ModesDto extends RunModes { virtualNow: number; realNow: number }
+
+// v2.5：后台功能配置与公告（仅公开开关与文案，不含内部配置细节）。
+export interface PublicMaintenanceDto {
+  notice: string;
+  radarNewEnabled: boolean;
+  planNewEnabled: boolean;
+  anchorSubmitEnabled: boolean;
+  configVersion: number;
+}
+
+export type NotificationDto = NotificationV2;
 
 export interface MeetDto {
   radarActive: boolean;
@@ -110,6 +121,7 @@ export interface PromiseDetailDto {
   dueAt: number;
   criteria: string;
   scoringOptIn: boolean;
+  attachments: AttachmentRef[]; // v2.5：承诺附件（png/jpg/pdf/md/word，含内容预览）
   status: string;
   revision: number;
   confirmations: Record<string, number>;
@@ -159,6 +171,8 @@ export interface MeDto {
 
 export interface V2StateView {
   modes: ModesDto;
+  publicMaintenance: PublicMaintenanceDto; // v2.5：功能暂停与公告（后台发布）
+  notifications: NotificationDto[];        // v2.5：未读站内提醒（待确认/核验结论）
   me: MeDto;
   meet: MeetDto;
   know: KnowDto;

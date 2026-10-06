@@ -1,0 +1,80 @@
+// 后台领域类型（v2.5，依据《Heartbell v2.1 后台需求与设计方案》第 4/6 节）。
+// 权限绑定 AdminPrincipal；没有账号的普通用户不具备任何 ops 权限。
+// 演示环境使用两个明确标记的测试管理账号；正式环境必须由服务器工具引导首位 owner。
+
+export type AdminRole = "owner" | "reviewer" | "support" | "maintainer" | "auditor";
+
+export const adminRoleLabels: Record<AdminRole, string> = {
+  owner: "负责人",
+  reviewer: "审核",
+  support: "客服",
+  maintainer: "运维",
+  auditor: "审计",
+};
+
+// 权限点（设计文档第 6 节接口表的权限列收敛）。
+export type AdminPermission =
+  | "overview.read" | "claims.read" | "claims.assign" | "claims.decide"
+  | "cases.read" | "cases.resolve" | "approvals.request" | "approvals.approve"
+  | "users.read" | "rewards.read" | "inventory.propose"
+  | "anchors.read" | "anchors.retry"
+  | "system.read" | "config.propose" | "audit.read";
+
+// 角色权限矩阵（owner 不自动获得全部私密材料权限，矩阵按设计文档第 4 节收敛）。
+export const rolePermissions: Record<AdminRole, AdminPermission[]> = {
+  owner: [
+    "overview.read", "claims.read", "claims.assign", "claims.decide",
+    "cases.read", "cases.resolve", "approvals.request", "approvals.approve",
+    "users.read", "rewards.read", "inventory.propose",
+    "anchors.read", "anchors.retry", "system.read", "config.propose", "audit.read",
+  ],
+  reviewer: [
+    "overview.read", "claims.read", "claims.assign", "claims.decide",
+    "cases.read", "cases.resolve", "approvals.request", "approvals.approve",
+    "rewards.read",
+  ],
+  support: ["overview.read", "users.read"],
+  maintainer: ["overview.read", "anchors.read", "anchors.retry", "system.read", "config.propose", "rewards.read"],
+  auditor: ["overview.read", "audit.read"],
+};
+
+export interface AdminAccount {
+  id: string;
+  username: string;        // 登录名
+  displayName: string;
+  roles: AdminRole[];
+  passwordHash: string;    // 演示账号为固定摘要；正式环境换成熟实现
+  createdAt: number;
+  disabledAt: number | null;
+}
+
+export interface AdminSession {
+  id: string;              // 随机会话 ID，Cookie 只携带此值，服务端存哈希
+  accountId: string;
+  createdAt: number;
+  expiresAt: number;       // 8h 绝对有效期
+  lastSeenAt: number;      // 30min 空闲失效
+  revokedAt: number | null;
+}
+
+export interface AdminPrincipal {
+  accountId: string;
+  username: string;
+  displayName: string;
+  roles: AdminRole[];
+  permissions: AdminPermission[];
+  sessionId: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  requestId: string;
+  actorId: string;
+  actorName: string;
+  action: string;          // 如 claims.decide / exceptions.refund / anchors.retry
+  targetType: string;
+  targetId: string;
+  detail: string;          // 脱敏摘要（不含联系方式/性取向/日记正文/salt）
+  result: "ok" | "rejected";
+  createdAt: number;
+}

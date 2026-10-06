@@ -1,9 +1,11 @@
 // 我们：日记版本、双方确认与承诺履约（计划书第 5 节 / 4.3 节）。
+// v2.5：日记/纪念日/承诺支持附件上传（png/jpg/pdf/md/word）；待确认事项向对方发送站内提醒。
 import type { V2State } from "../../../repositories/demo-repo";
-import { activeRelationshipOf, demoImageLibrary, demoImageSha256, latestEndedRelationship } from "../../../repositories/demo-repo";
+import { activeRelationshipOf, latestEndedRelationship, pushNotification } from "../../../repositories/demo-repo";
 import { badRequest, conflict, forbidden, notFound, versionConflict } from "../errors";
 import { MAX_SCORING_PER_DAY, MAX_SCORING_PROMISES } from "../../../domain/score";
 import { enqueueAnchor } from "./anchor";
+import { resolveAttachments } from "../attachments";
 import { refreshFor } from "./trust";
 import type { AnchorEvidence, AnchorJob, DiaryDoc, PromiseDoc, PromiseResolutionResult, RecordVersion } from "../../../domain/v2-types";
 import { RELATIONSHIP_TERMS_VERSION } from "../../../domain/relationship";
@@ -83,15 +85,7 @@ function parseDateNotFuture(value: unknown, now: number): string {
   return value;
 }
 
-function parseAttachments(ids: unknown) {
-  if (!Array.isArray(ids)) return [];
-  if (ids.length > 6) throw badRequest("每条日记最多 6 张图片");
-  return ids.map(id => {
-    const found = demoImageLibrary.find(img => img.id === id);
-    if (!found) throw badRequest("包含无效的演示图片");
-    return { id: found.id, name: found.name, sha256: demoImageSha256(found.id) };
-  });
-}
+// v2.5：附件 = 演示图片库选择 + 本地上传（png/jpg/pdf/md/word），统一走 resolveAttachments 校验。
 
 // 创建日记：私人草稿仅作者可见；shared 需对方确认同一版本。
 export function createDiary(state: V2State, viewer: string, input: Record<string, unknown>, now: number): string {
@@ -103,7 +97,7 @@ export function createDiary(state: V2State, viewer: string, input: Record<string
   const body = typeof input.body === "string" ? input.body.trim() : "";
   if (title.length < 1 || title.length > 40) throw badRequest("标题 1–40 字");
   if (body.length < 1 || body.length > 3000) throw badRequest("正文 1–3000 字");
-  const attachments = parseAttachments(input.attachmentIds);
+  const attachments = resolveAttachments(input, []);
   const visibility = input.visibility === "draft" ? "draft" : "shared";
   const doc: DiaryDoc = {
     id: `diary-${Math.random().toString(36).slice(2, 10)}`,
@@ -118,7 +112,21 @@ export function createDiary(state: V2State, viewer: string, input: Record<string
     anchor: null, anchoredVersion: null,
   };
   state.diaries.push(doc);
+  if (visibility === "shared") notifyAwaitingDiary(state, rel.members, viewer, doc, now);
   return doc.id;
+}
+
+// v2.5（反馈 4）：出现“等待对方确认”的日记时向对方发送站内提醒。
+function notifyAwaitingDiary(state: V2State, members: readonly string[], author: string, doc: DiaryDoc, now: number): void {
+  const version = currentVersion(doc);
+  for (const uid of members) {
+    if (uid === author) continue;
+    pushNotification(state, {
+      userId: uid, kind: "diary_awaiting", objectId: doc.id,
+      title: "有一页日记等你确认",
+      body: `「${version.title}」已写下，确认后这一版才会共同生效。`,
+    }, now);
+  }
 }
 
 // 修改生成新版本并重新确认；旧确认不复用。expectedVersion 乐观并发。
@@ -134,7 +142,7 @@ export function addDiaryVersion(state: V2State, viewer: string, input: Record<st
   const body = typeof input.body === "string" ? input.body.trim() : "";
   if (title.length < 1 || title.length > 40) throw badRequest("标题 1–40 字");
   if (body.length < 1 || body.length > 3000) throw badRequest("正文 1–3000 字");
-  const attachments = parseAttachments(input.attachmentIds);
+  const attachments = resolveAttachments(input, prev.attachments);
   const visibility = input.visibility === "draft" ? "draft" : "shared";
   doc.versions.push({
     version: doc.versions.length + 1, kind: prev.kind, date, title, body, attachments,
@@ -143,6 +151,10 @@ export function addDiaryVersion(state: V2State, viewer: string, input: Record<st
     confirmations: visibility === "draft" ? {} : { [viewer]: { at: now } },
     returnedBy: null, returnedNote: null,
   });
+  if (visibility === "shared") {
+    const rel = state.relationships.find(r => r.id === doc.relationshipId)!;
+    notifyAwaitingDiary(state, rel.members, viewer, doc, now);
+  }
   return doc.versions.length;
 }
 
@@ -155,6 +167,8 @@ export function shareDraft(state: V2State, viewer: string, diaryId: unknown, now
   version.visibility = "shared";
   version.status = "awaiting";
   version.confirmations[viewer] = { at: now };
+  const rel = state.relationships.find(r => r.id === doc.relationshipId)!;
+  notifyAwaitingDiary(state, rel.members, viewer, doc, now);
 }
 
 // 确认绑定具体版本：只对当前版本有效。
@@ -248,12 +262,22 @@ export function createPromise(state: V2State, viewer: string, input: Record<stri
     id: `promise-${Math.random().toString(36).slice(2, 10)}`,
     relationshipId: rel.id, revision: 1, content,
     responsibleUserIds: responsible, dueAt, criteria, scoringOptIn,
+    attachments: resolveAttachments(input, []), // v2.5：承诺附件（png/jpg/pdf/md/word）
     createdAt: now, status: "proposed", confirmations: { [viewer]: now },
     returnedBy: null,
     resolutions: Object.fromEntries(responsible.map(uid => [uid, { result: "pending", note: null, settledAt: null, confirmedBy: [] }])),
     anchor: null, previousVersionCommitment: null,
   };
   state.promises.push(doc);
+  // v2.5（反馈 4）：承诺提案向待确认方发送提醒。
+  for (const uid of rel.members) {
+    if (uid === viewer) continue;
+    pushNotification(state, {
+      userId: uid, kind: "promise_awaiting", objectId: doc.id,
+      title: "有一个承诺等你确认",
+      body: `「${content.slice(0, 24)}」等待你的确认，确认后承诺生效。`,
+    }, now);
+  }
   return doc.id;
 }
 
@@ -287,7 +311,7 @@ export function confirmPromise(state: V2State, viewer: string, promiseId: unknow
         responsibleUserIds: [...doc.responsibleUserIds], scoringOptIn: doc.scoringOptIn,
         confirmedAt: { ...doc.confirmations },
       },
-      attachmentHashes: [], rulesVersion: RELATIONSHIP_TERMS_VERSION,
+      attachmentHashes: doc.attachments.map(a => a.sha256), rulesVersion: RELATIONSHIP_TERMS_VERSION,
     }, now);
     doc.anchor = anchorEvidenceFromJob(job);
     doc.previousVersionCommitment = null;
@@ -317,6 +341,16 @@ export function recordResolution(state: V2State, viewer: string, promiseId: unkn
     maybeRefreshTrust(state, doc.relationshipId, now);
   } else {
     doc.resolutions[viewer] = { result: "pending", note, settledAt: null, confirmedBy: [viewer] };
+    // v2.5（反馈 4）：提交履约证据后提醒对方确认。
+    const rel = state.relationships.find(r => r.id === doc.relationshipId)!;
+    for (const uid of rel.members) {
+      if (uid === viewer) continue;
+      pushNotification(state, {
+        userId: uid, kind: "resolution_awaiting", objectId: doc.id,
+        title: "有一份履约证据等你确认",
+        body: `「${doc.content.slice(0, 24)}」的履约证据已提交，等待你的确认。`,
+      }, now);
+    }
   }
 }
 
@@ -349,6 +383,7 @@ export function confirmResolution(state: V2State, viewer: string, promiseId: unk
 }
 
 // 争议：单方指控不能直接扣分；进入 disputed，冻结分数并等待复核。
+// v2.5：trust 争议必须指向单一责任人（subjectUserId），复核按责任人定向裁定。
 export function disputePromiseResolution(state: V2State, viewer: string, promiseId: unknown, subjectUserId: unknown, now: number): void {
   const doc = findPromise(state, viewer, promiseId);
   if (typeof subjectUserId !== "string" || !doc.resolutions[subjectUserId]) throw badRequest("无效的责任对象");
@@ -360,7 +395,7 @@ export function disputePromiseResolution(state: V2State, viewer: string, promise
     id: `dispute-${Math.random().toString(36).slice(2, 10)}`,
     targetType: "trust", targetId: doc.id, raisedBy: viewer,
     note: `承诺「${doc.content.slice(0, 20)}」的履约结果存在争议`, createdAt: now,
-    resolvedAt: null, resolution: null,
+    resolvedAt: null, resolution: null, subjectUserId,
   });
   maybeRefreshTrust(state, doc.relationshipId, now);
 }
@@ -373,4 +408,43 @@ function maybeRefreshTrust(state: V2State, relationshipId: string, now: number):
     const latest = latestEndedRelationship(state, member);
     if (latest?.id === relationshipId) refreshFor(state, member, now);
   }
+}
+
+// v2.5 定向复核（衔接缺口 2）：以 disputeId + subjectUserId 裁定单一责任人，
+// 不再批量改写双方结果；复核后仅刷新受影响用户的摘要版本。
+export function resolveTrustDisputeControlled(
+  state: V2State,
+  actor: string,
+  disputeId: string,
+  subjectUserId: string | null,
+  finalResult: string,
+  reason: string | null,
+  now: number,
+): { subject: string; result: string } {
+  const dispute = state.disputes.find(d => d.id === disputeId && d.targetType === "trust" && !d.resolvedAt);
+  if (!dispute) throw notFound("争议不存在或已处理");
+  const doc = state.promises.find(p => p.id === dispute.targetId);
+  if (!doc) throw notFound("承诺不存在");
+  const subject = subjectUserId ?? dispute.subjectUserId;
+  if (!subject || !doc.resolutions[subject]) throw badRequest("该争议未绑定有效责任人，不能裁定");
+  if (!["fulfilled", "unfulfilled", "waived"].includes(finalResult)) throw badRequest("无效复核结论");
+  doc.resolutions[subject] = {
+    result: finalResult as "fulfilled",
+    note: reason ?? doc.resolutions[subject]?.note ?? null,
+    settledAt: now,
+    confirmedBy: [actor],
+  };
+  doc.revision += 1;
+  dispute.resolvedAt = now;
+  dispute.resolution = `${finalResult}（责任人 ${subject}）`;
+  // 复核结论改变结算结果 → 锚定新版本存证（版本 3，保留原结算版本）。
+  maybeAnchorPromiseSettlement(state, doc, now, 3);
+  const rel = state.relationships.find(r => r.id === doc.relationshipId);
+  if (rel) refreshFor(state, subject, now); // 仅刷新受影响用户
+  pushNotification(state, {
+    userId: subject, kind: "claim_decision", objectId: doc.id,
+    title: "履约争议复核完成",
+    body: `「${doc.content.slice(0, 20)}」的复核结论：${finalResult === "fulfilled" ? "已履行" : finalResult === "unfulfilled" ? "未履行" : "双方豁免"}。`,
+  }, now);
+  return { subject, result: finalResult };
 }

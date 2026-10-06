@@ -1,6 +1,6 @@
 {
   "name": "heartbell",
-  "version": "2.2.0",
+  "version": "2.5.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "contracts:compile": "node scripts/compile-contract.mjs",
     "verify:demo": "node scripts/verify-demo.mjs",
-    "verify:v2": "node scripts/verify-v2.mjs && node scripts/contract-check.mjs"
+    "verify:v2": "node scripts/verify-v2.mjs && node scripts/contract-check.mjs",
+    "verify:v25": "node _qa/verify-v25.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",

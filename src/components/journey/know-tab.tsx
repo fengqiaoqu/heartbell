@@ -1,8 +1,9 @@
 "use client";
 // 了解（计划书第 4 节 / UI-05/06）：意向、应用内状态、履约参考、联系方式独立授权、邀请关系。
 import { useState } from "react";
-import { Avatar, Button, Card, Chip, EmptyState, StageArt, zhDate, countdownText } from "../ui";
+import { Button, Card, Chip, EmptyState, StageArt, zhDate, countdownText } from "../ui";
 import { Modal } from "../modal";
+import { AvatarZoom } from "../avatar-zoom";
 import type { KnowConnectionDto, V2StateView } from "../../lib/domain/view-dtos";
 import { orientationDisplay } from "../../lib/domain/v2-types";
 import type { TabId } from "./app-shell";
@@ -44,7 +45,7 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
     </div>}
     <Card>
       <div className="profile-head">
-        <Avatar value={conn.profile?.avatar} size={64} className="reveal-avatar" />
+        <AvatarZoom value={conn.profile?.avatar} size={64} className="reveal-avatar" />
         <div>
           <h3>{conn.profile?.nickname ?? "尚未揭晓"}</h3>
           {conn.intentionLabel && <span className="intent-badge">意向：{conn.intentionLabel}</span>}

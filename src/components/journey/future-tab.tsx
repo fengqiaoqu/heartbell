@@ -1,5 +1,6 @@
 "use client";
 // 相守（计划书第 6 节 / UI-11..14）：演示版完整状态流 —— 投入、冷静期、审核、领取、失效、例外。
+// v2.5：need_more 申请在相守页直接补充材料（补正闭环）；后台暂停新计划时按钮同步停用。
 import { useEffect, useState } from "react";
 import { Button, Card, Chip, EmptyState, RoseIcon, StageArt, anchorStatusChip, countdownText, zhDate } from "../ui";
 import { Modal } from "../modal";
@@ -51,7 +52,9 @@ export function FutureTab({ view, user, busy, act, switchTab }: {
         <p className="muted points">我的余额：{view.future.myBalance} 点 · 奖励预算池：{view.future.rewardPoolBalance} 点 · 玫瑰券库存：{view.future.roseStock} 张</p>
       </div>
       <ul className="rule-list">{view.future.rules.map(r => <li key={r}>{r}</li>)}</ul>
-      <Button disabled={busy} onClick={() => setCreating(true)}>邀请 TA 一起加入</Button>
+      {view.publicMaintenance.planNewEnabled
+        ? <Button disabled={busy} onClick={() => setCreating(true)}>邀请 TA 一起加入</Button>
+        : <Button disabled title="维护公告期内暂停新建计划">新计划暂停加入（维护中）</Button>}
     </>}
 
     {plan && <PlanDetail view={view} user={user} plan={plan} now={now} busy={busy} act={act}
@@ -129,6 +132,7 @@ function PlanDetail({ view, user, plan, now, busy, act, onAccept, onClaim, onEnd
   busy: boolean; act(path: string, body?: Record<string, unknown>): Promise<boolean>;
   onAccept(): void; onClaim(): void; onEnd(mode: "normal" | "exception"): void; onEvidence(): void;
 }) {
+  const [supplementNote, setSupplementNote] = useState("");
   const claim = plan.claim;
   const benefit = plan.benefit;
   const iAmInviter = plan.proposedBy === user;
@@ -165,7 +169,18 @@ function PlanDetail({ view, user, plan, now, busy, act, onAccept, onClaim, onEnd
       {plan.forfeitWindowUntil && <div className="me-row"><b>异议窗口</b><span className="points">{countdownText(plan.forfeitWindowUntil - now)}</span></div>}
       {claim?.appealUntil && <div className="me-row"><b>争议期</b><span className="points">{countdownText(claim.appealUntil - now)}</span></div>}
       {claim && <div className="me-row"><b>申请</b><span className="muted">{claim.evidenceNote}（{zhDate(claim.targetOccurredAt)}）</span></div>}
-      {claim?.status === "need_more" && <p className="muted">审核要求补充材料（补正期 14 天）：{claim.decisionNote ?? "请在演示台补充材料后重新提交"}</p>}
+      {claim?.status === "need_more" && <div className="supplement-box">
+        <b>审核要求补充材料{claim.reasonCode ? `（${claim.reasonCode}）` : ""}</b>
+        <p className="muted">{claim.decisionNote ?? "请补充材料说明"}。补正期至 {zhDate(claim.reviewDeadlineAt)}，补充后重新进入 7 天审核。</p>
+        {/* v2.5 补正闭环：原申请保留，只追加新材料版本 */}
+        <label className="field-label" htmlFor="supplement-note">补充材料说明（2–200 字）</label>
+        <textarea id="supplement-note" maxLength={200} rows={3} value={supplementNote}
+          placeholder="例如：目标发生在 10 月 2 日，附双方在登记点的合影说明。"
+          onChange={e => setSupplementNote(e.target.value)} />
+        <Button disabled={busy || supplementNote.trim().length < 2} onClick={async () => {
+          if (await act("plans/claims/supplement", { claimId: claim.id, note: supplementNote.trim() })) setSupplementNote("");
+        }}>提交补充材料</Button>
+      </div>}
     </Card>}
 
     {plan.status === "active" && <>

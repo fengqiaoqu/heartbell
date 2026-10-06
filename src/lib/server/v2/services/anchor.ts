@@ -43,6 +43,11 @@ export function enqueueAnchor(
     createdAt: now, updatedAt: now,
   };
   state.anchorJobs.push(job);
+  // v2.5：后台暂停存证提交时，任务保留排队（内容与承诺不丢），恢复后由运维重试提交。
+  if (!state.featureConfig.anchorSubmitEnabled) {
+    job.error = "存证提交维护中：任务已排队，恢复后由运维在后台重试（内容未丢失）。";
+    return job;
+  }
   processJob(state, job, now);
   return job;
 }
@@ -55,6 +60,19 @@ export function retryAnchor(state: V2State, viewer: string, recordId: unknown, n
   const payload = JSON.parse(job.payloadJson) as CommitmentPayload;
   if (!payload.participants.includes(viewer)) throw forbidden("只有记录参与者可以重试存证");
   if (job.status === "confirmed" || job.status === "unconfigured") return job;
+  processJob(state, job, now);
+  return job;
+}
+
+// v2.5 后台精确重试：按 jobId + contentVersion 定位（不沿用 recordId 取第一个任务）。
+// failed/reorged 可重试；queued（暂停期间排队）恢复提交；submitted 仅查询；
+// confirmed 禁止重发；unconfigured 展示配置缺口，不允许“标记成功”。
+export function retryAnchorJob(state: V2State, jobId: string, now: number): AnchorJob {
+  const job = state.anchorJobs.find(j => j.id === jobId);
+  if (!job) throw badRequest("找不到存证任务");
+  if (job.status === "confirmed") throw badRequest("该任务已确认，禁止重发");
+  if (job.status === "unconfigured") throw badRequest("预览模式未配置真实链：任务保留本地指纹，无需也无法重试");
+  if (job.status === "submitted") return job; // 先查回执；演示环境无 worker，保持现状
   processJob(state, job, now);
   return job;
 }

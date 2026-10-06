@@ -120,10 +120,13 @@ export function endRelationship(state: V2State, viewer: string, relId: unknown, 
     if (["active", "claim_review", "approved", "redeemable"].includes(plan.status)) {
       if (["claim_review", "approved", "redeemable"].includes(plan.status)) {
         plan.status = "exception_review"; // 在途申请：比较目标时间、退出时间与条款后复核
+        plan.exceptionOpenedAt ??= now;   // v2.5：例外复核起点（关系结束路径）
+        plan.revision += 1;
       } else {
         plan.status = "forfeit_pending";
         plan.forfeitWindowUntil = now + 7 * 24 * HOUR;
         plan.endedReason = "normal_end";
+        plan.revision += 1;
       }
     }
   }

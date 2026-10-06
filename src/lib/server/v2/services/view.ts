@@ -1,7 +1,7 @@
 // 视图装配：为轮询端点组装按权限裁剪的状态（隐私规则在服务端执行）。
 import type { V2State } from "../../../repositories/demo-repo";
 import {
-  activeRelationshipOf, balanceOf, currentTrustSnapshot, pendingInviteFor,
+  activeRelationshipOf, balanceOf, currentTrustSnapshot, pendingInviteFor, unreadNotificationsOf,
 } from "../../../repositories/demo-repo";
 import { intentionLabels, planStatusLabels } from "../../../domain/v2-types";
 import { trustReasonLabels } from "../../../domain/score";
@@ -180,6 +180,15 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
 
   return {
     modes: { ...modes, virtualNow: now, realNow: Date.now() },
+    // v2.5：后台功能配置与公告（app-shell 顶部横幅；服务端同步执行限制）。
+    publicMaintenance: {
+      notice: state.featureConfig.maintenanceNotice,
+      radarNewEnabled: state.featureConfig.radarNewEnabled,
+      planNewEnabled: state.featureConfig.planNewEnabled,
+      anchorSubmitEnabled: state.featureConfig.anchorSubmitEnabled,
+      configVersion: state.featureConfig.version,
+    },
+    notifications: unreadNotificationsOf(state, viewer).slice(-30).reverse(),
     me: {
       id: viewer,
       profile: user.profile,
@@ -243,6 +252,7 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
       promises: relPromises.map(p => ({
         id: p.id, content: p.content, responsibleUserIds: p.responsibleUserIds,
         dueAt: p.dueAt, criteria: p.criteria, scoringOptIn: p.scoringOptIn,
+        attachments: p.attachments ?? [],
         status: p.status, revision: p.revision, confirmations: p.confirmations, resolutions: p.resolutions,
         anchor: promiseAnchorOf(state, p, modes),
       })),

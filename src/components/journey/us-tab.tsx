@@ -1,11 +1,14 @@
 "use client";
 // 我们（计划书第 5 节 / UI-08/09/10）：关系空间、日记版本、双方确认、承诺与归档。
 // v2.2：日记/承诺草稿不再被轮询刷新覆盖；承诺生效与结算均有存证状态；空间支持自定义。
+// v2.5：新增「待确认」栏（反馈 4）；日记/纪念日/承诺支持附件上传（反馈 6）；
+// 生成存证后凭证视图自动刷新为「查看证据」，无需关闭弹层（反馈 5）。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, Chip, EmptyState, BookIcon, GiftIcon, BellIcon, StageArt, anchorStatusChip, zhDate } from "../ui";
 import { Modal } from "../modal";
 import { getV2, postV2 } from "../../lib/client/v2-api";
 import { demoImageLibrary } from "../../lib/repositories/demo-images";
+import { AttachmentList, AttachmentUploader, type UploadedAttachment } from "../attachment-upload";
 import type { DiaryDetailDto, TimelineItemDto, V2StateView } from "../../lib/domain/view-dtos";
 import { spaceThemeLabels, type SpaceSettings, type SpaceTheme } from "../../lib/domain/v2-types";
 import { EvidenceDrawer } from "./evidence-drawer";
@@ -32,6 +35,9 @@ export function UsTab({ view, user, busy, act, switchTab }: {
   const rel = view.us.relationship;
   const timeline = view.us.timeline.filter(t =>
     filter === "all" ? true : filter === "diary" ? t.type === "diary" : filter === "promise" ? t.type === "promise" : t.type === "milestone" || t.type === "auto-milestone");
+  // v2.5（反馈 4）：待确认栏 = 所有需要我处理的项目（日记确认/承诺确认/履约证据确认/关系邀请）。
+  const pendingItems = timeline.filter(t => t.needsMyAction);
+  const pendingInvite = view.us.incomingInvite;
 
   if (!rel) {
     return <>
@@ -76,6 +82,28 @@ export function UsTab({ view, user, busy, act, switchTab }: {
         <button key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>
       ))}
     </div>
+
+    {(pendingItems.length > 0 || pendingInvite) && <Card className="tight pending-card">
+      <div className="pending-head">
+        <h3>待确认 <span className="pending-count">{pendingItems.length + (pendingInvite ? 1 : 0)}</span></h3>
+        <small className="muted">这些事项等待你处理；确认后自动移出</small>
+      </div>
+      {pendingInvite && <button className="pending-item" onClick={() => switchTab("know")}>
+        <span className="t-icon"><BellIcon /></span>
+        <span className="t-main"><strong>关系邀请待回应</strong><small>TA 邀请你建立关系，点这里去了解页回应</small></span>
+        <Chip tone="warning">待确认</Chip>
+      </button>}
+      {pendingItems.map(item => <button className="pending-item" key={item.id} onClick={() => {
+        if (item.type === "promise") setOpenPromise(item.id); else setOpenDiary(item.id);
+      }}>
+        <span className="t-icon">{item.type === "promise" ? <GiftIcon /> : <BookIcon />}</span>
+        <span className="t-main">
+          <strong>{item.title}</strong>
+          <small>{item.type === "promise" ? "承诺" : item.type === "milestone" || item.type === "auto-milestone" ? "纪念节点" : "日记"} · {item.statusText}</small>
+        </span>
+        <Chip tone="warning">{item.needsMyAction ? "待确认" : "提醒"}</Chip>
+      </button>)}
+    </Card>}
 
     <div className="timeline">
       {timeline.length === 0 && <EmptyState compact title="还没有记录" hint="第一天，从一页日记或一个小承诺开始。" />}
@@ -139,13 +167,14 @@ function DiaryEditor({ open, onClose, busy, act, virtualNow }: { open: boolean; 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+  const [uploads, setUploads] = useState<UploadedAttachment[]>([]);
   const [asDraft, setAsDraft] = useState(false);
   // v2.2 修复：虚拟时钟通过 ref 读取，仅在弹层打开瞬间取默认日期；
   // 1.2s 轮询刷新 virtualNow 不再重置表单（此前正文输入约 1 秒即被清空）。
   const virtualNowRef = useRef(virtualNow);
   virtualNowRef.current = virtualNow;
   useEffect(() => {
-    if (open) { setDate(todayOf(virtualNowRef.current)); setTitle(""); setBody(""); setPhotos([]); setAsDraft(false); setKind("diary"); }
+    if (open) { setDate(todayOf(virtualNowRef.current)); setTitle(""); setBody(""); setPhotos([]); setUploads([]); setAsDraft(false); setKind("diary"); }
   }, [open]);
   if (!open) return null;
   return <Modal title="写下今天" onClose={onClose}>
@@ -159,18 +188,19 @@ function DiaryEditor({ open, onClose, busy, act, virtualNow }: { open: boolean; 
     <input id="diary-title" maxLength={40} value={title} placeholder="例如：一起等了一场雨" onChange={e => setTitle(e.target.value)} />
     <label className="field-label" htmlFor="diary-body">正文（3000 字内）</label>
     <textarea id="diary-body" maxLength={3000} rows={5} value={body} placeholder="当时的心情、地点，或只有你们懂的话。" onChange={e => setBody(e.target.value)} />
-    <label className="field-label">演示图片（可选，最多 6 张 · 本地演示库）</label>
+    <label className="field-label">演示图片（可选，与附件合计最多 6 个 · 本地演示库）</label>
     <div className="photo-picker">
       {demoImageLibrary.map(img => (
         <button key={img.id} className={photos.includes(img.id) ? "chosen" : ""} aria-pressed={photos.includes(img.id)}
-          onClick={() => setPhotos(photos.includes(img.id) ? photos.filter(p => p !== img.id) : photos.length >= 6 ? photos : [...photos, img.id])}>
+          onClick={() => setPhotos(photos.includes(img.id) ? photos.filter(p => p !== img.id) : photos.length + uploads.length >= 6 ? photos : [...photos, img.id])}>
           {img.name}
         </button>
       ))}
     </div>
+    <AttachmentUploader files={uploads} onChange={setUploads} extraCount={photos.length} label={`附件（可选，png / jpg / pdf / md / word，与演示图片合计最多 6 个）`} />
     <label className="checkbox"><input type="checkbox" checked={asDraft} onChange={e => setAsDraft(e.target.checked)} />先存为私人草稿（仅你可见，不通知对方、不存证）</label>
     <Button disabled={busy || !date || !title.trim() || !body.trim()} onClick={async () => {
-      if (await act("diaries", { kind, date, title, body, attachmentIds: photos, visibility: asDraft ? "draft" : "shared" })) onClose();
+      if (await act("diaries", { kind, date, title, body, attachmentIds: photos, attachments: uploads, visibility: asDraft ? "draft" : "shared" })) onClose();
     }}>{busy ? "保存中…" : asDraft ? "保存草稿" : "发给 TA 确认"}</Button>
   </Modal>;
 }
@@ -205,7 +235,7 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence }: {
         <span className={`stamp ${version.status === "confirmed" ? "confirmed" : "waiting"}`}>{version.status === "confirmed" ? "共同\n确认" : "待确认"}</span>
       </div>
       <p style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{version.body}</p>
-      {version.attachments.length > 0 && <div className="attachment-preview">{version.attachments.map(a => <span key={a.id}>🖼 {a.name}</span>)}</div>}
+      {version.attachments.length > 0 && <AttachmentList attachments={version.attachments} />}
       <p className="muted">{Object.keys(version.confirmations).length >= 2 ? "双方已确认这一版本" : myConfirmed ? "你已确认，等待 TA" : "等待你确认"}{detail.versions.length > 1 ? ` · 历史共 ${detail.versions.length} 版` : ""}</p>
       {version.returnedNote && <p className="muted">退回备注：{version.returnedNote}</p>}
     </div>
@@ -244,7 +274,10 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence }: {
       <p className="muted center">需要双方确认这一版本后才能生成存证；当前状态：{version.status === "awaiting" ? (myConfirmed ? "等待 TA 确认" : "等待你确认") : version.status === "draft" ? "私人草稿" : "已退回/撤回"}。</p>
     </>}
     {version.status === "confirmed" && !detail.anchor && <>
-      <Button disabled={busy} onClick={() => act("diaries/anchor", { diaryId: detail.id })}>为这一版生成存证</Button>
+      {/* v2.5（反馈 5）：生成存证成功后立即重新加载详情，弹层内自动变为「查看证据」，无需关闭重开。 */}
+      <Button disabled={busy} onClick={async () => {
+        if (await act("diaries/anchor", { diaryId: detail.id })) await load(detail.id);
+      }}>为这一版生成存证</Button>
       <p className="muted center">preview 模式无需连接钱包：生成的是本地承诺指纹（可导出核验），不会发起链上交易。</p>
     </>}
     {detail.anchor && <Button className="ghost" onClick={() => onEvidence({ anchor: detail.anchor, business: "双方已确认的日记版本", recordId: detail.id })}>查看证据</Button>}
@@ -263,13 +296,14 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
   const [criteria, setCriteria] = useState("");
   const [responsible, setResponsible] = useState<"me" | "both">("both");
   const [scoring, setScoring] = useState(false);
+  const [uploads, setUploads] = useState<UploadedAttachment[]>([]);
   const [evidenceNote, setEvidenceNote] = useState("");
   const promise = view.us.promises.find(p => p.id === open) ?? null;
   const defaultDueAt = () => {
     const d = new Date(view.modes.virtualNow + 3 * 86_400_000);
     return d.toISOString().slice(0, 10);
   };
-  useEffect(() => { if (creating) { setContent(""); setDueAt(defaultDueAt()); setCriteria(""); setResponsible("both"); setScoring(false); } }, [creating]);
+  useEffect(() => { if (creating) { setContent(""); setDueAt(defaultDueAt()); setCriteria(""); setResponsible("both"); setScoring(false); setUploads([]); } }, [creating]);
 
   if (creating) return <Modal title="立下一个重要承诺" onClose={() => setCreating(false)}>
     <label className="field-label" htmlFor="promise-content">承诺内容（4–80 字）</label>
@@ -282,11 +316,12 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
       <button className={responsible === "both" ? "chosen" : ""} onClick={() => setResponsible("both")}>双方共同负责</button>
       <button className={responsible === "me" ? "chosen" : ""} onClick={() => setResponsible("me")}>我负责（只考核我）</button>
     </div>
+    <AttachmentUploader files={uploads} onChange={setUploads} label="附件（可选，png / jpg / pdf / md / word，最多 6 个 · 随承诺一起存证指纹）" />
     <label className="checkbox"><input type="checkbox" checked={scoring} onChange={e => setScoring(e.target.checked)} />
       双方同意此项计入履约参考（需在截止前至少 24 小时创建；每段关系最多 10 项）</label>
     <p className="muted">限制人身选择或难以客观判定的承诺（如“永不分手”、亲密行为、密码/定位、借钱）会被拒绝。</p>
     <Button disabled={busy || !content.trim() || !dueAt || !criteria.trim()} onClick={async () => {
-      if (await act("promises", { content, dueAt: Date.parse(`${dueAt}T12:00:00Z`), criteria, responsible, scoringOptIn: scoring })) setCreating(false);
+      if (await act("promises", { content, dueAt: Date.parse(`${dueAt}T12:00:00Z`), criteria, responsible, scoringOptIn: scoring, attachments: uploads })) setCreating(false);
     }}>{busy ? "保存中…" : "提交承诺（等待 TA 确认）"}</Button>
   </Modal>;
 
@@ -312,6 +347,7 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
         </div>
         <span className={`stamp ${stampClass}`}>{stampText}</span>
       </div>
+      {promise.attachments.length > 0 && <AttachmentList attachments={promise.attachments} />}
       <p className="muted">{promise.scoringOptIn ? "此项计入履约参考（双方事前同意）" : "浪漫约定，不计入履约分"}</p>
     </div>
     <div className="status-line">

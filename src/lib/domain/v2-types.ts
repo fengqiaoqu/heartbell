@@ -163,12 +163,30 @@ export interface V2Relationship {
 // ---------- 日记与承诺（我们） ----------
 
 export type TimelineKind = "diary" | "milestone";
-export type AttachmentKind = "photo";
+export type AttachmentKind = "photo" | "file";
+
+// v2.5 附件上传（反馈 6）：日记/纪念日/承诺支持 png、jpg、pdf、md、word（doc/docx）。
+// 演示图片库附件不带 dataUrl；上传附件以 base64 data URL 存内存演示仓库。
+export const uploadAttachmentExts = ["png", "jpg", "jpeg", "pdf", "md", "doc", "docx"] as const;
+export const uploadAttachmentExtMime: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  pdf: "application/pdf", md: "text/markdown",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
+export const uploadAttachmentAccept = ".png,.jpg,.jpeg,.pdf,.md,.doc,.docx";
+export const uploadAttachmentLabel = "png / jpg / pdf / md / word（doc·docx）";
+export const MAX_UPLOAD_ATTACHMENT_CHARS = 900_000;  // 单个附件 base64 上限（约 650KB 原始数据）
+export const MAX_ATTACHMENTS_PER_RECORD = 6;
 
 export interface AttachmentRef {
-  id: string;       // 演示图片库中的固定 ID
+  id: string;       // 演示图片固定 ID，或 up- 前缀的上传附件 ID
   name: string;
-  sha256: string;   // 演示库预置指纹（确定性，用于版本比较）
+  sha256: string;   // 演示库预置指纹 / 上传内容指纹（确定性，用于版本比较）
+  kind?: AttachmentKind;      // 缺省视为 photo（v2.2 前的演示图片）
+  mime?: string | null;
+  size?: number | null;       // 上传文件字节数
+  dataUrl?: string | null;    // 上传文件内容（仅内存演示仓库，导出证据包不含）
 }
 
 export type RecordVersionStatus = "draft" | "awaiting" | "confirmed" | "returned" | "withdrawn";
@@ -226,6 +244,7 @@ export interface PromiseDoc {
   dueAt: number;                // 截止时间（可在未来）
   criteria: string;             // 验收方式
   scoringOptIn: boolean;        // 是否计入履约参考
+  attachments: AttachmentRef[]; // v2.5：承诺附件（png/jpg/pdf/md/word）
   createdAt: number;
   status: PromiseStatus;
   confirmations: Record<string, number>; // 成员 -> 确认时间
@@ -304,6 +323,7 @@ export interface CommitmentPlan {
   revision: number;               // 乐观并发
   reservationId: string | null;
   forfeitWindowUntil: number | null; // 普通结束 7 天异议窗口
+  exceptionOpenedAt: number | null; // v2.5：进入例外复核的真实起点（不使用 activatedAt 代替）
   endedReason: "cooling_cancel" | "normal_end" | "expired" | "exception" | null;
   anchor: AnchorEvidence | null;
 }
@@ -331,6 +351,15 @@ export interface RewardReservation {
 
 export type ClaimStatus = "submitted" | "need_more" | "rejected" | "approved" | "frozen";
 
+// 核验申请材料（v2.5）：初始材料 + 补正材料只追加，旧材料与审核意见保留。
+export interface ClaimMaterial {
+  index: number;          // 材料版本（1 = 初始材料）
+  note: string;
+  submittedBy: string;
+  submittedAt: number;
+  source: "initial" | "supplement";
+}
+
 export interface GoalClaim {
   id: string;
   planId: string;
@@ -346,6 +375,12 @@ export interface GoalClaim {
   appealUntil: number | null;   // 审核通过后 7 天争议期
   dedupeToken: string;          // 同一计划去重
   reviewDeadlineAt: number | null; // 审核 7 天 / 补正 14 天
+  revision: number;             // v2.5：乐观并发（后台决定/补正递增）
+  assignedTo: string | null;    // v2.5：后台受理人（管理员 actorId）
+  reasonCode: string | null;    // v2.5：最近一次审核原因码
+  materials: ClaimMaterial[];   // v2.5：材料历史（含补正）
+  lastSupplementAt: number | null; // v2.5：最近补正时间
+  reviewEvents: { at: number; actor: string; decision: string; reasonCode: string | null; note: string | null }[]; // 审核时间线
 }
 
 export interface Benefit {
@@ -394,6 +429,64 @@ export interface DisputeV2 {
   createdAt: number;
   resolvedAt: number | null;
   resolution: string | null;
+  subjectUserId: string | null; // v2.5：trust 争议必须指向单一责任人（定向裁定）
+}
+
+// ---------- 站内通知（v2.5 反馈 4：待确认提醒） ----------
+
+export type NotificationKind =
+  | "claim_decision"      // 核验结论（通过/补正/不通过）
+  | "diary_awaiting"      // 对方写下/修改了日记，等待你确认
+  | "promise_awaiting"    // 对方立下承诺，等待你确认
+  | "resolution_awaiting" // 对方提交履约证据，等待你确认
+  | "system";
+
+export interface NotificationV2 {
+  id: string;
+  userId: string;
+  kind: NotificationKind;
+  objectId: string;        // 日记/承诺/申请 ID（读取时仍按权限校验）
+  title: string;
+  body: string;
+  createdAt: number;
+  readAt: number | null;
+}
+
+// ---------- 功能配置与公告（v2.5 后台 ADM-07） ----------
+
+export interface FeatureConfigV2 {
+  version: number;
+  radarNewEnabled: boolean;      // 暂停新的雷达开启
+  planNewEnabled: boolean;       // 暂停新建/接受相守计划
+  anchorSubmitEnabled: boolean;  // 暂停新的存证提交（任务排队，不丢内容）
+  maintenanceNotice: string;     // ≤120 字，用户端顶部公告
+  updatedBy: string | null;
+  updatedAt: number | null;
+}
+export const defaultFeatureConfig: FeatureConfigV2 = {
+  version: 1, radarNewEnabled: true, planNewEnabled: true, anchorSubmitEnabled: true,
+  maintenanceNotice: "", updatedBy: null, updatedAt: null,
+};
+
+// ---------- 双人审批（v2.5：例外退款/失效、库存校正、配置发布） ----------
+
+export type ApprovalType = "exception_resolution" | "inventory_adjustment" | "config_publish";
+
+export interface ApprovalRequest {
+  id: string;
+  type: ApprovalType;
+  summary: string;          // 人话描述（不含秘密）
+  payloadJson: string;      // 决定内容（执行前服务端重查对象版本）
+  targetId: string | null;  // planId / pool 单位 / config
+  targetRevision: number | null;
+  proposerId: string;
+  proposerName: string;
+  status: "pending" | "approved" | "rejected" | "executed";
+  createdAt: number;
+  resolvedAt: number | null;
+  approverId: string | null;
+  approverName: string | null;
+  rejectReason: string | null;
 }
 
 // ---------- 运行模式 ----------

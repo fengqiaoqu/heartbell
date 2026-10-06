@@ -2,6 +2,7 @@
 // 相遇（计划书第 3 节 / UI-02/03）：特征、雷达、铃声列表与关系中停止雷达。
 // v2.2 修复：倒计时只按服务端返回的到期时间推算，轮询刷新不再叠加本地秒数，
 // 也不会在重进页面时“跳回”更长的剩余时间。
+// v2.5（反馈 3）：秒级刷新在小屏上偶有跳变观感，取消秒数，只显示分钟。
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Chip, EmptyState, RingIcon, StageArt } from "../ui";
 import type { V2StateView } from "../../lib/domain/view-dtos";
@@ -11,9 +12,8 @@ const categories = ["穿着", "配饰", "手持物", "当前状态", "其他"] a
 
 function radarCountdown(msLeft: number): string {
   if (msLeft <= 0) return "本轮已结束";
-  const s = Math.ceil(msLeft / 1000);
-  const m = Math.floor(s / 60);
-  return `剩余 ${m} 分 ${String(s % 60).padStart(2, "0")} 秒`;
+  const minutes = Math.max(1, Math.ceil(msLeft / 60_000)); // 向上取整：不显示 0 分钟
+  return `剩余约 ${minutes} 分钟`;
 }
 
 export function MeetTab({ view, user, busy, act, switchTab, onRing, onNeedAdult }: {
@@ -82,10 +82,12 @@ export function MeetTab({ view, user, busy, act, switchTab, onRing, onNeedAdult 
           {traits.length === 2 ? "+ 添加一项" : "移除第三项"}
         </button>
         {declared
-          ? <Button disabled={busy || traits.some(t => !t.value.trim())}
-              onClick={() => act("radar", { active: true, traits: traits.map(t => ({ ...t, value: t.value.trim() })) })}>
-              {busy ? "准备中…" : "开启 10 分钟心动雷达"}
-            </Button>
+          ? (view.publicMaintenance.radarNewEnabled
+              ? <Button disabled={busy || traits.some(t => !t.value.trim())}
+                  onClick={() => act("radar", { active: true, traits: traits.map(t => ({ ...t, value: t.value.trim() })) })}>
+                  {busy ? "准备中…" : "开启 10 分钟心动雷达"}
+                </Button>
+              : <Button disabled title="维护公告期内暂停新开启">雷达暂停新开启（维护中）</Button>)
           : <Button className="secondary" onClick={onNeedAdult}>先完成成年声明（在我的资料中，仅一次）</Button>}
         <p className="muted center">{view.meet.zoneLabel} · 开启才会被发现，可随时关闭。</p>
       </Card>

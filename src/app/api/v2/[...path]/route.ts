@@ -90,10 +90,27 @@ const routes: Record<string, Handler> = {
   "POST /plans/accept": ({ viewer, body }) => { const { state, now } = sweepAndNow(); plan.acceptPlan(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true }; },
   "POST /plans/cancel": ({ viewer, body }) => { const { state, now } = sweepAndNow(); plan.cancelPlan(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true }; },
   "POST /plans/claims": ({ viewer, body }) => { const { state, now } = sweepAndNow(); plan.submitClaim(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true }; },
+  // v2.5 补正闭环：need_more → 补充材料 → submitted（保留原 claimId 与审核记录）。
+  "POST /plans/claims/supplement": ({ viewer, body }) => { const { state, now } = sweepAndNow(); plan.supplementClaim(state, resolveDemoUser(state, body.viewer ?? viewer), body.claimId, body.note, now); return { ok: true }; },
   "POST /benefits/redeem": ({ viewer, body }) => { const { state, now } = sweepAndNow(); plan.redeemBenefit(state, resolveDemoUser(state, body.viewer ?? viewer), body.benefitId, body, now); return { ok: true }; },
   "POST /disputes": ({ viewer, body }) => { const { state, now } = sweepAndNow(); plan.raiseDispute(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true }; },
   // ---------- 存证 ----------
   "POST /anchors/retry": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const job = anchor.retryAnchor(state, resolveDemoUser(state, body.viewer ?? viewer), body.recordId, now); return { ok: true, status: job.status }; },
+  // ---------- 站内通知（v2.5） ----------
+  "POST /notifications/read": ({ viewer, body }) => {
+    const state = getV2State();
+    const me = resolveDemoUser(state, body.viewer ?? viewer);
+    const all = body.all === true;
+    const ids = Array.isArray(body.ids) ? body.ids.map(String) : [];
+    let updated = 0;
+    for (const n of state.notifications) {
+      if (n.userId !== me || n.readAt !== null) continue;
+      if (!all && !ids.includes(n.id)) continue;
+      n.readAt = Date.now();
+      updated += 1;
+    }
+    return { ok: true, updated };
+  },
   // ---------- 演示台（仅 APP_MODE=demo） ----------
   "GET /admin/snapshot": () => admin.adminSnapshot(getV2State()),
   "POST /admin/reset": () => { admin.adminReset(); return { ok: true }; },
@@ -101,7 +118,7 @@ const routes: Record<string, Handler> = {
   "POST /admin/chain-fault": ({ body }) => ({ ok: true, chainFault: admin.adminSetChainFault(body.active) }),
   "POST /admin/claims/decision": ({ body }) => { admin.adminDecideClaim(getV2State(), body.claimId, body); return { ok: true }; },
   "POST /admin/exception/resolve": ({ body }) => { admin.adminResolveException(getV2State(), body.planId, body.decision); return { ok: true }; },
-  "POST /admin/trust-dispute/resolve": ({ body }) => { admin.adminResolveTrustDispute(getV2State(), body.promiseId, body.finalResult); return { ok: true }; },
+  "POST /admin/trust-dispute/resolve": ({ body }) => { admin.adminResolveTrustDispute(getV2State(), body.promiseId, body.finalResult, body.subjectUserId); return { ok: true }; },
 };
 
 export async function GET(request: Request, context: { params: Promise<{ path: string[] }> }) {
