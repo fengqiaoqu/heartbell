@@ -20,6 +20,8 @@ Next.js + TypeScript 全链条恋爱产品演示：**相遇 → 了解 → 我�
 
 验证：`node _qa/verify-v22.mjs`（38 项 v2.2 专项，需先 `npm run dev` 并设 `DEMO_URL`）+ `npm run verify:v2`（103 项回归）。
 
+完整版本历史与协作者注意事项见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 启动
 
 需要 Node.js 20.9+ 及 npm。
