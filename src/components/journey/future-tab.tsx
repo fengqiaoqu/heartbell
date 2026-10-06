@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Button, Card, Chip, EmptyState, RoseIcon, StageArt, anchorStatusChip, countdownText, zhDate } from "../ui";
 import { Modal } from "../modal";
 import type { V2StateView } from "../../lib/domain/view-dtos";
-import type { AnchorEvidence } from "../../lib/domain/v2-types";
+import { businessDateKey, type AnchorEvidence } from "../../lib/domain/v2-types";
 import { EvidenceDrawer } from "./evidence-drawer";
 import { exportEvidence } from "./us-tab";
 import type { TabId } from "./app-shell";
@@ -87,7 +87,7 @@ export function FutureTab({ view, user, busy, act, switchTab }: {
     {claimOpen && plan && <Modal title="申请目标核验" onClose={() => setClaimOpen(false)}>
       <p className="muted">P0 使用人工制作的演示材料，醒目标注“非真实证件”；审核只验证工作流，不代表接入婚姻登记机构。目标必须发生在冷静期结束后、计划到期前。</p>
       <label className="field-label" htmlFor="goal-date">目标发生日期</label>
-      <input id="goal-date" type="date" value={goalDate} max={new Date(now).toISOString().slice(0, 10)} onChange={e => setGoalDate(e.target.value)} />
+      <input id="goal-date" type="date" value={goalDate} max={businessDateKey(now)} onChange={e => setGoalDate(e.target.value)} />
       <label className="field-label" htmlFor="claim-note">演示材料说明</label>
       <input id="claim-note" maxLength={200} value={evidenceNote} placeholder="例如：双方线下登记（演示剧情）" onChange={e => setEvidenceNote(e.target.value)} />
       <Button disabled={busy || !goalDate || !evidenceNote.trim()} onClick={async () => {
@@ -116,10 +116,11 @@ export function FutureTab({ view, user, busy, act, switchTab }: {
 // 核验目标日期默认值：不早于冷静期结束、不晚于虚拟今天（宽限期内仍可选到期前日期）
 function defaultClaimDate(plan: NonNullable<V2StateView["future"]["plan"]>, now: number): string {
   const floor = plan.coolingUntil ?? 0;
-  const dateStr = new Date(Math.max(now, floor)).toISOString().slice(0, 10);
+  // v2.7：业务时区（北京时间）的日期键，与服务端校验同口径。
+  const dateStr = businessDateKey(Math.max(now, floor));
   // 日期输入按当日 12:00Z 解析；若该时刻仍早于冷静期结束，顺延一天
   if (Date.parse(`${dateStr}T12:00:00Z`) < floor) {
-    return new Date(floor + 86_400_000).toISOString().slice(0, 10);
+    return businessDateKey(floor + 86_400_000);
   }
   return dateStr;
 }

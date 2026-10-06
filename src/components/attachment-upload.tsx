@@ -3,7 +3,7 @@
 // 客户端做格式与大小预检，服务端 resolveAttachments 再校验一遍（指纹、数量、类型）。
 import { useRef, useState } from "react";
 import {
-  MAX_ATTACHMENTS_PER_RECORD, uploadAttachmentAccept, uploadAttachmentExts, uploadAttachmentLabel,
+  MAX_ATTACHMENTS_PER_RECORD, MAX_UPLOAD_ATTACHMENT_BYTES, uploadAttachmentAccept, uploadAttachmentExts, uploadAttachmentLabel,
 } from "../lib/domain/v2-types";
 
 export interface UploadedAttachment { name: string; dataUrl: string }
@@ -39,11 +39,14 @@ export function AttachmentUploader({ files, onChange, extraCount = 0, label }: {
         setError(`「${file.name}」不支持的格式（支持 ${uploadAttachmentLabel}）`);
         continue;
       }
-      if (file.size > 600_000) {
+      if (file.size > MAX_UPLOAD_ATTACHMENT_BYTES) {
         setError(`「${file.name}」过大（单个 ≤ 600KB）`);
         continue;
       }
-      if (files.length + next.length >= remaining) {
+      // v2.7：remaining 已扣除已选数量（files.length + extraCount），
+      // 此处只比较本次新加入数 —— 此前 files.length+next.length 与 remaining 相比，
+      // 分批选择时剩余额度被重复扣减，第 4 个附件被误报“最多 6 个”。
+      if (next.length >= remaining) {
         setError(`最多 ${MAX_ATTACHMENTS_PER_RECORD} 个附件（含演示图片）`);
         break;
       }

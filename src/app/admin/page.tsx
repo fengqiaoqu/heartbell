@@ -36,7 +36,7 @@ async function opsPost<T = { ok: boolean }>(path: string, body: Record<string, u
 const zhTime = (ts: number | null | undefined) => ts ? new Date(ts).toLocaleString("zh-CN", { hour12: false }) : "—";
 const zhDate = (ts: number | null | undefined) => ts ? new Date(ts).toLocaleDateString("zh-CN") : "—";
 
-interface SessionInfo { actor: string; username: string; roles: string[]; permissions: string[] }
+interface SessionInfo { accountId: string; actor: string; username: string; roles: string[]; permissions: string[] }
 interface Overview {
   metrics: { pendingClaims: number; needMoreClaims: number; exceptionReviews: number; failedAnchors: number; unconfiguredAnchors: number; availableRose: number; availablePoints: number };
   tasks: { source: string; targetId: string; owner: string; deadlineAt: number | null; impact: string }[];
@@ -160,8 +160,8 @@ function LoginGate({ onLogin }: { onLogin: (s: SessionInfo) => void }) {
   async function submit() {
     setBusy(true); setError("");
     try {
-      const data = await opsPost<SessionInfo & { roles: string[] }>("login", { username, password });
-      onLogin({ actor: data.actor, username, roles: data.roles, permissions: data.permissions });
+      const data = await opsPost<SessionInfo>("login", { username, password });
+      onLogin({ accountId: data.accountId, actor: data.actor, username: data.username, roles: data.roles, permissions: data.permissions });
     } catch (e) {
       setError(e instanceof Error ? e.message : "登录失败");
     } finally { setBusy(false); }
@@ -299,7 +299,8 @@ function ClaimsPanel({ session, act, busy }: { session: SessionInfo; act: Act; b
   useEffect(() => { if (detail && selected === detail.id) { const t = setInterval(() => loadDetail(detail.id), 5000); return () => clearInterval(t); } }, [detail, selected, loadDetail]);
 
   const canDecide = session.permissions.includes("claims.decide");
-  const mineLocked = detail?.assignedTo && detail.assignedTo !== "me" && detail.assignedTo.length > 0;
+  // v2.7：与真实受理人 accountId 比较（此前与字符串 "me" 比较，自己领取的工单也被误判为“他人受理”）。
+  const mineLocked = !!detail?.assignedTo && detail.assignedTo !== session.accountId;
   return <>
     <div className="topbar"><h1>核验工作台</h1></div>
     <p className="subline">左侧申请队列、右侧详情；领取工单后才能处理。未领取、非被指派人、旧版本、已终结状态服务端均拒绝写入。</p>

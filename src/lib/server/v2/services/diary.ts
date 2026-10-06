@@ -1,9 +1,16 @@
 // 我们：日记版本、双方确认与承诺履约（计划书第 5 节 / 4.3 节）。
 // v2.5：日记/纪念日/承诺支持附件上传（png/jpg/pdf/md/word）；待确认事项向对方发送站内提醒。
+// v2.7（双用户实测修复）：共同写入必须关系仍在进行且未屏蔽；他人私人草稿禁止读写；
+// 确认/退回/撤回必须携带 expectedVersion，旧版本请求返回冲突；创建支持 Idempotency-Key 幂等；
+// 日期按业务时区（北京时间）校验真实日历。
 import type { V2State } from "../../../repositories/demo-repo";
-import { activeRelationshipOf, latestEndedRelationship, pushNotification } from "../../../repositories/demo-repo";
+import {
+  activeRelationshipOf, findIdempotentRecord, latestEndedRelationship, pushNotification,
+  rememberIdempotentRecord,
+} from "../../../repositories/demo-repo";
 import { badRequest, conflict, forbidden, notFound, versionConflict } from "../errors";
 import { MAX_SCORING_PER_DAY, MAX_SCORING_PROMISES } from "../../../domain/score";
+import { businessDateKey, isValidCalendarDate } from "../../../domain/v2-types";
 import { enqueueAnchor } from "./anchor";
 import { resolveAttachments } from "../attachments";
 import { assertPairCanInteract, visibleDiaryVersions } from "../privacy-policy";
@@ -73,23 +80,58 @@ function findDiary(state: V2State, viewer: string, diaryId: unknown): DiaryDoc {
   return diary;
 }
 
+// v2.7：共同写入门槛（改版/发送/确认/退回/撤回）——关系必须仍在进行且双方未被屏蔽。
+// 关系结束后日记只读；承诺结果确认与计划结算走独立流程，不受此门槛影响。
+function writableDiaryRelationship(state: V2State, doc: DiaryDoc, viewer: string) {
+  const rel = state.relationships.find(r => r.id === doc.relationshipId);
+  if (!rel || !rel.members.includes(viewer)) throw forbidden("只有关系成员可以操作关系空间");
+  if (rel.status !== "active" && rel.status !== "married") {
+    throw forbidden("关系已结束，这一页只能只读查看；履约结果与计划结算走独立流程。");
+  }
+  assertPairCanInteract(state, rel.members[0], rel.members[1]);
+  return rel;
+}
+
+// v2.7：定位待确认/退回/撤回的目标版本 —— 请求必须携带打开弹层时看到的版本号；
+// 之后出现过新的共享版本则返回冲突，防止“看旧版却确认了新版”。
+function resolveExpectedVersion(doc: DiaryDoc, expectedVersion: unknown): RecordVersion {
+  if (typeof expectedVersion !== "number" || !Number.isInteger(expectedVersion)) {
+    throw badRequest("缺少要处理的版本号，请重新打开这一页后再操作。");
+  }
+  const target = doc.versions.find(v => v.version === expectedVersion);
+  if (!target) throw versionConflict("这一页已更新，请重新阅读最新版本。");
+  const hasNewerShared = doc.versions.some(v => v.version > expectedVersion && v.visibility === "shared");
+  if (hasNewerShared) {
+    throw versionConflict("对方刚刚修改了这一页，请重新阅读最新版本后再确认。");
+  }
+  return target;
+}
+
 export function currentVersion(doc: DiaryDoc): RecordVersion {
   return doc.versions[doc.versions.length - 1];
 }
 
 function parseDateNotFuture(value: unknown, now: number): string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw badRequest("日期格式应为 YYYY-MM-DD");
-  const time = Date.parse(`${value}T00:00:00Z`);
-  if (Number.isNaN(time)) throw badRequest("日期无效");
-  const today = new Date(now); today.setUTCHours(0, 0, 0, 0);
-  if (time > today.getTime()) throw badRequest("历史事件的日期不能晚于今天");
+  // v2.7：真实日历校验（拒绝 2026-02-30 等）+ 业务时区（北京时间）的“今天”上限。
+  if (!isValidCalendarDate(value)) throw badRequest("日期无效（请检查是否为真实存在的日历日期）");
+  if (value > businessDateKey(now)) throw badRequest("历史事件的日期不能晚于今天");
   return value;
 }
 
 // v2.5：附件 = 演示图片库选择 + 本地上传（png/jpg/pdf/md/word），统一走 resolveAttachments 校验。
 
 // 创建日记：私人草稿仅作者可见；shared 需对方确认同一版本。
-export function createDiary(state: V2State, viewer: string, input: Record<string, unknown>, now: number): string {
+// v2.7：支持 Idempotency-Key —— 同键重复提交（网络重试/双击）返回首次创建的 diaryId，不产生重复。
+export function createDiary(
+  state: V2State, viewer: string, input: Record<string, unknown>, now: number,
+  options?: { idempotencyKey?: string | null },
+): string {
+  const idempotencyKey = typeof options?.idempotencyKey === "string" && options.idempotencyKey.trim() ? options.idempotencyKey.trim().slice(0, 120) : null;
+  if (idempotencyKey) {
+    const hit = findIdempotentRecord(state, viewer, idempotencyKey);
+    if (hit?.kind === "diary") return hit.recordId;
+  }
   const rel = activeRelationshipOf(state, viewer);
   if (!rel) throw forbidden("确认关系后才能共同写日记");
   assertPairCanInteract(state, rel.members[0], rel.members[1]); // v2.6：屏蔽期间冻结新的共享写入
@@ -114,6 +156,7 @@ export function createDiary(state: V2State, viewer: string, input: Record<string
     anchor: null, anchoredVersion: null,
   };
   state.diaries.push(doc);
+  if (idempotencyKey) rememberIdempotentRecord(state, { viewer, key: idempotencyKey, kind: "diary", recordId: doc.id, at: now });
   if (visibility === "shared") notifyAwaitingDiary(state, rel.members, viewer, doc, now);
   return doc.id;
 }
@@ -132,12 +175,18 @@ function notifyAwaitingDiary(state: V2State, members: readonly string[], author:
 }
 
 // 修改生成新版本并重新确认；旧确认不复用。expectedVersion 乐观并发。
+// v2.7：关系结束或屏蔽后拒绝；对方的私人草稿只有本人可以改写。
 export function addDiaryVersion(state: V2State, viewer: string, input: Record<string, unknown>, now: number): number {
   const doc = findDiary(state, viewer, input.diaryId);
+  writableDiaryRelationship(state, doc, viewer);
   if (input.expectedVersion !== doc.versions.length) {
     throw versionConflict("对方刚刚修改了这一页，请重新阅读最新版本后再修改。");
   }
   const prev = currentVersion(doc);
+  // v2.7：从未分享的私人草稿仅作者本人可改（实测：对方拿到 diaryId 可直接改写）。
+  if (prev.visibility === "draft" && prev.author !== viewer) {
+    throw forbidden("这是对方的私人草稿，仅本人可见和修改。");
+  }
   // 旧版本保留为历史；当前版本 = 最后一个，旧确认不复用。
   const date = parseDateNotFuture(input.date, now);
   const title = typeof input.title === "string" ? input.title.trim() : "";
@@ -163,6 +212,7 @@ export function addDiaryVersion(state: V2State, viewer: string, input: Record<st
 // 把草稿发给对方（进入 awaiting，作者自动确认这一版本）。
 export function shareDraft(state: V2State, viewer: string, diaryId: unknown, now: number): void {
   const doc = findDiary(state, viewer, diaryId);
+  writableDiaryRelationship(state, doc, viewer);
   const version = currentVersion(doc);
   if (version.author !== viewer) throw forbidden("只有作者可以发送草稿");
   if (version.visibility !== "draft") throw conflict("VERSION_STATE", "这一页不在草稿状态");
@@ -173,12 +223,17 @@ export function shareDraft(state: V2State, viewer: string, diaryId: unknown, now
   notifyAwaitingDiary(state, rel.members, viewer, doc, now);
 }
 
-// 确认绑定具体版本：只对当前版本有效。
-export function confirmDiaryVersion(state: V2State, viewer: string, diaryId: unknown, now: number): void {
-  const doc = findDiary(state, viewer, diaryId);
-  const rel = state.relationships.find(r => r.id === doc.relationshipId)!;
-  assertPairCanInteract(state, rel.members[0], rel.members[1]); // v2.6：屏蔽期间冻结确认
-  const version = currentVersion(doc);
+// 确认绑定具体版本。v2.7：请求必须携带 expectedVersion（打开弹层时看到的版本）；
+// 之后出现过新的共享版本则 409 冲突，必须重新阅读，防止“看旧版确认了新版”。
+export function confirmDiaryVersion(
+  state: V2State, viewer: string,
+  input: { diaryId?: unknown; expectedVersion?: unknown },
+  now: number,
+): void {
+  const doc = findDiary(state, viewer, input.diaryId);
+  const rel = writableDiaryRelationship(state, doc, viewer);
+  void rel;
+  const version = resolveExpectedVersion(doc, input.expectedVersion);
   if (version.visibility === "draft") throw forbidden("私人草稿不需要对方确认");
   if (version.status !== "awaiting") throw conflict("VERSION_STATE", "这一页当前状态不可确认");
   if (version.confirmations[viewer]) throw conflict("ALREADY_CONFIRMED", "你已经确认过这一版本");
@@ -186,18 +241,26 @@ export function confirmDiaryVersion(state: V2State, viewer: string, diaryId: unk
   if (Object.keys(version.confirmations).length >= 2) version.status = "confirmed";
 }
 
-export function returnDiaryVersion(state: V2State, viewer: string, diaryId: unknown, note: unknown): void {
-  const doc = findDiary(state, viewer, diaryId);
-  const version = currentVersion(doc);
+export function returnDiaryVersion(
+  state: V2State, viewer: string,
+  input: { diaryId?: unknown; expectedVersion?: unknown; note?: unknown },
+): void {
+  const doc = findDiary(state, viewer, input.diaryId);
+  writableDiaryRelationship(state, doc, viewer);
+  const version = resolveExpectedVersion(doc, input.expectedVersion);
   if (version.status !== "awaiting") throw conflict("VERSION_STATE", "只有待确认的版本可以退回");
   version.status = "returned";
   version.returnedBy = viewer;
-  version.returnedNote = typeof note === "string" && note.trim() ? note.trim().slice(0, 120) : null;
+  version.returnedNote = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 120) : null;
 }
 
-export function withdrawDiary(state: V2State, viewer: string, diaryId: unknown): void {
-  const doc = findDiary(state, viewer, diaryId);
-  const version = currentVersion(doc);
+export function withdrawDiary(
+  state: V2State, viewer: string,
+  input: { diaryId?: unknown; expectedVersion?: unknown },
+): void {
+  const doc = findDiary(state, viewer, input.diaryId);
+  writableDiaryRelationship(state, doc, viewer);
+  const version = resolveExpectedVersion(doc, input.expectedVersion);
   if (version.status !== "awaiting") throw conflict("VERSION_STATE", "只有待确认的版本可以撤回");
   if (version.author !== viewer) throw forbidden("只有作者可以撤回");
   version.status = "withdrawn";
@@ -232,9 +295,11 @@ export function anchorDiary(state: V2State, viewer: string, diaryId: unknown, no
 
 // v2.6：详情按版本裁剪 —— 私人草稿、对方撤回的版本、屏蔽/结束后未共同确认的共享版本
 // 不再返回（读取矩阵 4.1；DTO 不携带原始 doc）。存证信息绑定已确认版本，双方归档可读。
+// v2.7：无可见版本时按“不存在”返回（404），不再泄露隐藏日记的存在性。
 export function getDiaryDetail(state: V2State, viewer: string, diaryId: unknown) {
   const doc = findDiary(state, viewer, diaryId);
   const versions = visibleDiaryVersions(state, doc, viewer);
+  if (versions.length === 0) throw notFound("日记不存在或当前不可见");
   return {
     id: doc.id,
     currentVersion: versions.length ? versions[versions.length - 1].version : 0,
@@ -248,11 +313,49 @@ export function getDiaryDetail(state: V2State, viewer: string, diaryId: unknown)
   };
 }
 
+// v2.7：已结束关系的只读归档列表 —— 双方共同确认过的版本保留可检索；
+// 实测反馈“旧归档只有数量，不能打开”，此接口支撑归档弹层与逐条查看。
+export function archivedDiaries(state: V2State, viewer: string, relationshipId: unknown) {
+  if (typeof relationshipId !== "string") throw badRequest("无效关系 ID");
+  const rel = state.relationships.find(r => r.id === relationshipId && r.members.includes(viewer));
+  if (!rel) throw forbidden("只有关系成员可以查看归档");
+  if (rel.status !== "ended") throw badRequest("该关系仍在进行中，请在「我们」页查看");
+  const items = state.diaries
+    .filter(d => d.relationshipId === rel.id)
+    .map(d => {
+      const visible = visibleDiaryVersions(state, d, viewer);
+      if (visible.length === 0) return null;
+      const v = visible[visible.length - 1];
+      return {
+        id: d.id, kind: v.kind === "milestone" ? "milestone" : "diary",
+        title: v.title, date: v.date, status: v.status,
+        versionCount: visible.length, latestVersion: v.version,
+        anchored: d.anchor !== null,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  return {
+    relationshipId: rel.id,
+    endedAt: rel.endedAt,
+    total: items.length,
+    items,
+  };
+}
+
 // ---------- 承诺 ----------
 
 const forbiddenPromisePatterns = ["永不分手", "不许分手", "不能分手", "密码", "定位", "借钱", "发生关系", "亲密行为", "性行为"];
 
-export function createPromise(state: V2State, viewer: string, input: Record<string, unknown>, now: number): string {
+export function createPromise(
+  state: V2State, viewer: string, input: Record<string, unknown>, now: number,
+  options?: { idempotencyKey?: string | null },
+): string {
+  const idempotencyKey = typeof options?.idempotencyKey === "string" && options.idempotencyKey.trim() ? options.idempotencyKey.trim().slice(0, 120) : null;
+  if (idempotencyKey) {
+    const hit = findIdempotentRecord(state, viewer, idempotencyKey);
+    if (hit?.kind === "promise") return hit.recordId;
+  }
   const rel = activeRelationshipOf(state, viewer);
   if (!rel) throw forbidden("确认关系后才能共同立下承诺");
   const content = typeof input.content === "string" ? input.content.trim() : "";
@@ -271,8 +374,9 @@ export function createPromise(state: V2State, viewer: string, input: Record<stri
     if (dueAt - now < 24 * HOUR) throw badRequest("计分承诺必须在截止前至少 24 小时创建");
     const scoring = state.promises.filter(p => p.relationshipId === rel.id && p.scoringOptIn && p.status !== "returned");
     if (scoring.length >= MAX_SCORING_PROMISES) throw badRequest(`每段关系最多 ${MAX_SCORING_PROMISES} 项计分承诺`);
-    const todayKey = new Date(now).toISOString().slice(0, 10);
-    const todayCount = scoring.filter(p => new Date(p.createdAt).toISOString().slice(0, 10) === todayKey).length;
+    // v2.7：每个自然日按业务时区计算（此前 UTC 会在北京时间凌晨错记一天）。
+    const todayKey = businessDateKey(now);
+    const todayCount = scoring.filter(p => businessDateKey(p.createdAt) === todayKey).length;
     if (todayCount >= MAX_SCORING_PER_DAY) throw badRequest("每个自然日最多新增 1 项计分承诺");
   }
   const doc: PromiseDoc = {
@@ -286,6 +390,7 @@ export function createPromise(state: V2State, viewer: string, input: Record<stri
     anchor: null, previousVersionCommitment: null,
   };
   state.promises.push(doc);
+  if (idempotencyKey) rememberIdempotentRecord(state, { viewer, key: idempotencyKey, kind: "promise", recordId: doc.id, at: now });
   // v2.5（反馈 4）：承诺提案向待确认方发送提醒。
   for (const uid of rel.members) {
     if (uid === viewer) continue;

@@ -3,7 +3,7 @@ import type { V2State } from "../../../repositories/demo-repo";
 import {
   activeRelationshipOf, balanceOf, currentTrustSnapshot, pendingInviteFor, unreadNotificationsOf,
 } from "../../../repositories/demo-repo";
-import { intentionLabels, planStatusLabels } from "../../../domain/v2-types";
+import { intentionLabels, planStatusLabels, businessDateKey } from "../../../domain/v2-types";
 import { trustReasonLabels } from "../../../domain/score";
 import { planRulesSummary } from "../../../domain/plan-rules";
 import { now as v2now, runModes, sweep } from "../registry";
@@ -170,7 +170,8 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
     }));
 
   const scoringPromises = myRel ? state.promises.filter(p => p.relationshipId === myRel.id && p.scoringOptIn && p.status === "active") : [];
-  const todayKey = new Date(now).toISOString().slice(0, 10);
+  // v2.7：自然日按业务时区（北京时间）划分。
+  const todayKey = businessDateKey(now);
 
   // ---------- 相守 ----------
   const myPlans = state.plans.filter(p => {
@@ -263,7 +264,7 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
       archives,
       scoringUsage: {
         used: scoringPromises.length, max: 10,
-        todayNew: scoringPromises.filter(p => new Date(p.createdAt).toISOString().slice(0, 10) === todayKey).length,
+        todayNew: scoringPromises.filter(p => businessDateKey(p.createdAt) === todayKey).length,
       },
     },
     future: {

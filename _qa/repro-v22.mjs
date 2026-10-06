@@ -35,7 +35,7 @@ const diaryId = diary.data?.diaryId;
 if (diaryId) {
   const detail = await get(`diaries/detail?id=${diaryId}&viewer=b`);
   log("diary detail b:", detail.data?.versions?.map(v => v.status));
-  log("diary confirm b:", (await post("diaries/confirm", { viewer: "b", diaryId })).data ?? "ERR");
+  log("diary confirm b:", (await post("diaries/confirm", { viewer: "b", diaryId, expectedVersion: 1 })).data ?? "ERR");
   log("diary anchor:", (await post("diaries/anchor", { viewer: "b", diaryId })).data ?? "ERR");
   // 修改新版本
   log("diary version:", (await post("diaries/version", { viewer: "a", diaryId, expectedVersion: 1, date: new Date().toISOString().slice(0, 10), title: "一起等了一场雨（改）", body: "补一句。", attachmentIds: [], visibility: "shared" })).data ?? "ERR");

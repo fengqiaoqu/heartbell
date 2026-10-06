@@ -114,6 +114,23 @@ export interface DiaryDetailDto {
   anchoredVersion: number | null;
 }
 
+// v2.7：已结束关系的只读归档列表（双方共同确认过的版本；可逐条点开查看）。
+export interface ArchiveSummaryDto {
+  relationshipId: string;
+  endedAt: number | null;
+  total: number;
+  items: {
+    id: string;
+    kind: "diary" | "milestone";
+    title: string;
+    date: string;
+    status: string;
+    versionCount: number;
+    latestVersion: number;
+    anchored: boolean;
+  }[];
+}
+
 export interface PromiseDetailDto {
   id: string;
   content: string;

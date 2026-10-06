@@ -5,7 +5,7 @@ import {
 } from "../../../repositories/demo-repo";
 import { badRequest, conflict, forbidden, notFound, versionConflict } from "../errors";
 import { RELATIONSHIP_INVITE_HOURS, RELATIONSHIP_TERMS_VERSION, isActiveBinding } from "../../../domain/relationship";
-import { ageCohorts, spaceThemeLabels, type ShareScope, type SpaceSettings, type SpaceTheme, type V2Relationship } from "../../../domain/v2-types";
+import { ageCohorts, businessDateKey, spaceThemeLabels, type ShareScope, type SpaceSettings, type SpaceTheme, type V2Relationship } from "../../../domain/v2-types";
 import { defaultAvatarIds, MAX_UPLOAD_AVATAR_LENGTH } from "../../../domain/avatars";
 import { HOUR } from "../../../domain/relationship";
 import { enqueueAnchor } from "./anchor";
@@ -66,7 +66,7 @@ export function acceptRelationship(state: V2State, viewer: string, relId: unknow
     id: `diary-${Math.random().toString(36).slice(2, 10)}`,
     relationshipId: rel.id, createdAt: now,
     versions: [{
-      version: 1, kind: "milestone", date: new Date(now).toISOString().slice(0, 10),
+      version: 1, kind: "milestone", date: businessDateKey(now), // v2.7：业务时区日期
       title: "关系第一天", body: "我们决定在一起了。", attachments: [],
       author: "system", createdAt: now, visibility: "shared", status: "confirmed",
       confirmations: { [rel.members[0]]: { at: now }, [rel.members[1]]: { at: now } },

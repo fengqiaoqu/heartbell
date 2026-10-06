@@ -2,6 +2,28 @@
 // 与 src/lib/types.ts 中的旧演示类型并行存在；旧类型服务于 /api/demo，不改动其含义。
 // 领域层使用通用不透明用户 ID（string），"a"/"b" 仅供演示会话。
 
+// ---------- 业务日期（v2.7：统一业务时区） ----------
+// 日期默认值、上限与“每个自然日”计数统一按业务时区（北京时间）计算；
+// 不再用 UTC toISOString()（北京时间凌晨时会把“今天”错记成昨天）。
+export const BUSINESS_TIME_ZONE = "Asia/Shanghai";
+
+// 业务时区下的 YYYY-MM-DD（sv-SE 区域格式恰为 ISO 日期）。
+export function businessDateKey(ms: number): string {
+  return new Date(ms).toLocaleDateString("sv-SE", { timeZone: BUSINESS_TIME_ZONE });
+}
+
+// 真实日历日期校验（拒绝 2026-02-30 / 2026-13-01 这类无效日期）。
+export function isValidCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  return utc.getUTCFullYear() === year && utc.getUTCMonth() === month - 1 && utc.getUTCDate() === day;
+}
+
 // ---------- 用户与档案 ----------
 
 export type Intention = "serious" | "open" | "not_now"; // 认真恋爱 / 先认识再决定 / 暂不寻求稳定关系
@@ -177,7 +199,8 @@ export const uploadAttachmentExtMime: Record<string, string> = {
 };
 export const uploadAttachmentAccept = ".png,.jpg,.jpeg,.pdf,.md,.doc,.docx";
 export const uploadAttachmentLabel = "png / jpg / pdf / md / word（doc·docx）";
-export const MAX_UPLOAD_ATTACHMENT_CHARS = 900_000;  // 单个附件 base64 上限（约 650KB 原始数据）
+// v2.7：按解码后的字节数校验（与前端 file.size 同一口径），不再按 base64 字符串长度估算。
+export const MAX_UPLOAD_ATTACHMENT_BYTES = 600_000;  // 单个附件 ≤ 600KB（原始字节）
 export const MAX_ATTACHMENTS_PER_RECORD = 6;
 
 export interface AttachmentRef {

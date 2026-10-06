@@ -63,7 +63,8 @@ export async function GET(request: Request, context: { params: Promise<{ path: s
     const routes: Record<string, (c: Ctx) => unknown> = {
       "GET /session": ({ principal: p }) => {
         if (!p) throw new ApiError(401, "UNAUTHENTICATED", "未登录或会话已过期");
-        return { actor: p.displayName, username: p.username, roles: p.roles, permissions: p.permissions };
+        // v2.7：返回 accountId —— 页面用真实受理人 ID 判断工单是否本人领取（不再比较别名 "me"）。
+        return { accountId: p.accountId, actor: p.displayName, username: p.username, roles: p.roles, permissions: p.permissions };
       },
       "GET /overview": guarded("overview.read", ({ me }) => { auditRead(me, "overview"); return opsOverview(sweepAndNow().state); }),
       "GET /claims": guarded("claims.read", ({ url: u }) => opsClaimsList(getV2State(), { status: u.searchParams.get("status"), mine: u.searchParams.get("mine") })),
@@ -120,7 +121,7 @@ export async function POST(request: Request, context: { params: Promise<{ path: 
     if (key === "POST /login") {
       const { principal: p, session } = login(body.username, body.password);
       audit({ actorId: p.accountId, actorName: p.displayName, action: "auth.login", targetType: "session", targetId: session.id, detail: "登录维护后台（演示测试账号）" });
-      return ok({ actor: p.displayName, roles: p.roles, permissions: p.permissions }, { setCookie: sessionCookieHeader(session.id, 8 * 3600) });
+      return ok({ accountId: p.accountId, actor: p.displayName, username: p.username, roles: p.roles, permissions: p.permissions }, { setCookie: sessionCookieHeader(session.id, 8 * 3600) });
     }
     if (key === "POST /logout") {
       const p = principal;

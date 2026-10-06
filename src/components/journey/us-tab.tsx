@@ -3,21 +3,26 @@
 // v2.2：日记/承诺草稿不再被轮询刷新覆盖；承诺生效与结算均有存证状态；空间支持自定义。
 // v2.5：新增「待确认」栏（反馈 4）；日记/纪念日/承诺支持附件上传（反馈 6）；
 // 生成存证后凭证视图自动刷新为「查看证据」，无需关闭弹层（反馈 5）。
-import { useCallback, useEffect, useRef, useState } from "react";
+// v2.7（双用户实测修复）：确认/退回/撤回携带 expectedVersion 并在操作后刷新详情；
+// 弹层打开期间自动同步对方改版；新增按钮固定在列表上方；待确认超过 5 项折叠；
+// 时间线支持搜索与分页加载；旧归档可点开只读查看；日期按业务时区（北京时间）取默认值。
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, Chip, EmptyState, BookIcon, GiftIcon, BellIcon, StageArt, anchorStatusChip, zhDate } from "../ui";
 import { Modal } from "../modal";
 import { getV2, postV2 } from "../../lib/client/v2-api";
 import { demoImageLibrary } from "../../lib/repositories/demo-images";
 import { AttachmentList, AttachmentUploader, type UploadedAttachment } from "../attachment-upload";
-import type { DiaryDetailDto, TimelineItemDto, V2StateView } from "../../lib/domain/view-dtos";
-import { spaceThemeLabels, type SpaceSettings, type SpaceTheme } from "../../lib/domain/v2-types";
+import type { ArchiveSummaryDto, DiaryDetailDto, TimelineItemDto, V2StateView } from "../../lib/domain/view-dtos";
+import { businessDateKey, spaceThemeLabels, type SpaceSettings, type SpaceTheme } from "../../lib/domain/v2-types";
 import { EvidenceDrawer } from "./evidence-drawer";
 import { ReportBlockDialog } from "../privacy/safety-center";
 import type { TabId } from "./app-shell";
 
 type Filter = "all" | "diary" | "promise" | "milestone";
-// 日期默认值/上限跟随虚拟业务时钟（演示台推进时间后表单仍与服务端一致）。
-const todayOf = (virtualNow: number) => new Date(virtualNow).toISOString().slice(0, 10);
+// v2.7：日期默认值/上限按业务时区（北京时间）计算，不再用 UTC（凌晨时“今天”会错成昨天）。
+const todayOf = (virtualNow: number) => businessDateKey(virtualNow);
+const PAGE_SIZE = 20;
+const PENDING_PREVIEW = 5;
 
 export function UsTab({ view, user, busy, act, switchTab }: {
   view: V2StateView; user: string; busy: boolean;
@@ -33,33 +38,72 @@ export function UsTab({ view, user, busy, act, switchTab }: {
   const [spaceOpen, setSpaceOpen] = useState(false);
   const [safetyOpen, setSafetyOpen] = useState(false); // v2.6：关系内举报/屏蔽入口
   const [evidence, setEvidence] = useState<{ anchor: TimelineItemDto["anchor"]; business: string; recordId?: string } | null>(null);
+  // v2.7：长列表三件套 —— 关键字搜索、日期筛选、分页加载（实测 200 条后新增入口沉底 2 万像素）。
+  const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [pendingExpanded, setPendingExpanded] = useState(false);
+  // v2.7：旧归档弹层（已结束关系的只读记录列表）。
+  const [archiveOpen, setArchiveOpen] = useState<string | null>(null);
+  const [archiveReadOnlyId, setArchiveReadOnlyId] = useState<string | null>(null);
 
   const rel = view.us.relationship;
-  const timeline = view.us.timeline.filter(t =>
+  const allTimeline = view.us.timeline.filter(t =>
     filter === "all" ? true : filter === "diary" ? t.type === "diary" : filter === "promise" ? t.type === "promise" : t.type === "milestone" || t.type === "auto-milestone");
+  const keyword = search.trim().toLowerCase();
   // v2.5（反馈 4）：待确认栏 = 所有需要我处理的项目（日记确认/承诺确认/履约证据确认/关系邀请）。
-  const pendingItems = timeline.filter(t => t.needsMyAction);
+  const pendingItems = allTimeline.filter(t => t.needsMyAction);
   const pendingInvite = view.us.incomingInvite;
 
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filter, keyword, dateFilter]);
+
   if (!rel) {
+    // v2.7：有待回应的关系邀请时，直接在「我们」显示邀请卡（实测：此前误显示“去邀请关系”空态）。
+    const invite = view.us.incomingInvite;
+    const inviter = invite ? invite.nicknameOf?.[invite.proposedBy] ?? invite.proposedBy : null;
     return <>
       <p className="eyebrow">一起记录</p>
       <h1>我们</h1>
       <StageArt stage="us" />
-      <EmptyState title="确认关系后，一起写下第一天" hint="共同日记、重要承诺和纪念时间线，都属于你们的关系空间。"
-        action={<Button onClick={() => switchTab("know")}>去了解并邀请关系</Button>} />
+      {invite ? <>
+        <Card className="tight pending-card">
+          <div className="pending-head">
+            <h3>关系邀请待回应 <span className="pending-count">1</span></h3>
+            <small className="muted">{inviter} 邀请你建立关系；回应后才能一起写日记。</small>
+          </div>
+          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            <Button disabled={busy} onClick={() => act("relationships/accept", { relationshipId: invite.id })}>接受邀请，开始共同记录</Button>
+            <Button className="secondary" disabled={busy} onClick={() => act("relationships/decline", { relationshipId: invite.id })}>婉拒这次邀请</Button>
+          </div>
+        </Card>
+      </> : <EmptyState title="确认关系后，一起写下第一天" hint="共同日记、重要承诺和纪念时间线，都属于你们的关系空间。"
+        action={<Button onClick={() => switchTab("know")}>去了解并邀请关系</Button>} />}
       {view.us.archives.length > 0 && <Card className="tight">
         <h3>我的旧归档</h3>
         {view.us.archives.map(a => <div className="me-row" key={a.id}>
           <span>{a.partnerLabel}</span>
-          <span className="muted">{a.timelineCount} 条记录 · 只读</span>
+          <span className="muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {a.timelineCount} 条记录 · 只读
+            <button className="text-button" onClick={() => setArchiveOpen(a.id)}>查看记录</button>
+          </span>
         </div>)}
         <p className="muted">归档仅本人可见，不能新增共同内容；已有承诺的结果确认与计划结算走独立接口。</p>
       </Card>}
+      <ArchiveModal open={archiveOpen} onClose={() => setArchiveOpen(null)} user={user}
+        onOpenDiary={(id) => { setArchiveOpen(null); setArchiveReadOnlyId(id); setOpenDiary(id); }} />
+      <DiaryDetail open={openDiary} onClose={() => { setOpenDiary(null); setArchiveReadOnlyId(null); }} user={user}
+        busy={busy} act={act} onEvidence={setEvidence} readOnly={archiveReadOnlyId !== null} />
     </>;
   }
 
   const space = rel.spaceSettings;
+  const timeline = keyword || dateFilter ? allTimeline.filter(t =>
+    (!keyword || t.title.toLowerCase().includes(keyword) || t.subtitle.toLowerCase().includes(keyword))
+    && (!dateFilter || t.dateLabel.includes(dateFilter))) : allTimeline;
+  const visibleTimeline = timeline.slice(0, visibleCount);
+  const shownPending = pendingExpanded ? pendingItems : pendingItems.slice(0, PENDING_PREVIEW);
+  const hiddenPendingCount = pendingItems.length - shownPending.length;
+
   return <>
     <div className={`us-hero theme-${space.theme}`}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -79,23 +123,38 @@ export function UsTab({ view, user, busy, act, switchTab }: {
       </div>
     </div>
 
+    {/* v2.7：新增入口固定在列表上方（实测 200 条后按钮沉到 2 万像素深，找不到入口）。 */}
+    <div className="us-create-bar">
+      <button className="diary-new" onClick={() => setCreating(true)}>＋ 写下今天</button>
+      <button className="text-button" onClick={() => setPromiseCreating(true)}>立下一个重要承诺</button>
+      <span className="muted" style={{ fontSize: 10.5 }}>计分承诺 {view.us.scoringUsage.used}/{view.us.scoringUsage.max} · 今日已新增 {view.us.scoringUsage.todayNew} 项</span>
+    </div>
+
     <div className="filter-row">
       {([["all", "全部"], ["diary", "日记"], ["promise", "承诺"], ["milestone", "纪念"]] as const).map(([id, label]) => (
         <button key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>
       ))}
     </div>
 
+    {/* v2.7：关键字 + 日期搜索，长列表可定位；不与顶部待确认栏重复铺开。 */}
+    <div className="us-search-row">
+      <input aria-label="搜索记录" placeholder="搜索标题或内容摘要…" value={search} maxLength={40}
+        onChange={e => setSearch(e.target.value)} />
+      <input aria-label="按日期筛选" type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+      {(keyword || dateFilter) && <button className="text-button" onClick={() => { setSearch(""); setDateFilter(""); }}>清除</button>}
+    </div>
+
     {(pendingItems.length > 0 || pendingInvite) && <Card className="tight pending-card">
       <div className="pending-head">
         <h3>待确认 <span className="pending-count">{pendingItems.length + (pendingInvite ? 1 : 0)}</span></h3>
-        <small className="muted">这些事项等待你处理；确认后自动移出</small>
+        <small className="muted">这些事项等待你处理；确认后自动移出{pendingItems.length > PENDING_PREVIEW ? "（默认只显示前几项）" : ""}</small>
       </div>
       {pendingInvite && <button className="pending-item" onClick={() => switchTab("know")}>
         <span className="t-icon"><BellIcon /></span>
         <span className="t-main"><strong>关系邀请待回应</strong><small>TA 邀请你建立关系，点这里去了解页回应</small></span>
         <Chip tone="warning">待确认</Chip>
       </button>}
-      {pendingItems.map(item => <button className="pending-item" key={item.id} onClick={() => {
+      {shownPending.map(item => <button className="pending-item" key={item.id} onClick={() => {
         if (item.type === "promise") setOpenPromise(item.id); else setOpenDiary(item.id);
       }}>
         <span className="t-icon">{item.type === "promise" ? <GiftIcon /> : <BookIcon />}</span>
@@ -105,18 +164,21 @@ export function UsTab({ view, user, busy, act, switchTab }: {
         </span>
         <Chip tone="warning">{item.needsMyAction ? "待确认" : "提醒"}</Chip>
       </button>)}
+      {pendingItems.length > PENDING_PREVIEW && <button className="text-button" style={{ margin: "6px auto", display: "block" }}
+        onClick={() => setPendingExpanded(v => !v)}>
+        {pendingExpanded ? "收起待确认列表" : `展开全部 ${pendingItems.length} 项待确认`}
+      </button>}
     </Card>}
 
     <div className="timeline">
-      {timeline.length === 0 && <EmptyState compact title="还没有记录" hint="第一天，从一页日记或一个小承诺开始。" />}
-      {timeline.map(item => <TimelineRow key={item.id} item={item} onOpen={() => {
+      {timeline.length === 0 && <EmptyState compact title={keyword || dateFilter ? "没有匹配的记录" : "还没有记录"} hint={keyword || dateFilter ? "换个关键词或清除筛选试试。" : "第一天，从一页日记或一个小承诺开始。"} />}
+      {visibleTimeline.map(item => <TimelineRow key={item.id} item={item} onOpen={() => {
         if (item.type === "promise") setOpenPromise(item.id); else setOpenDiary(item.id);
       }} onEvidence={() => setEvidence({ anchor: item.anchor, business: item.statusText, recordId: item.id })} />)}
+      {timeline.length > visibleCount && <Button className="ghost" onClick={() => setVisibleCount(c => c + PAGE_SIZE)}>
+        加载更多（还有 {timeline.length - visibleCount} 条）
+      </Button>}
     </div>
-
-    <button className="diary-new" onClick={() => setCreating(true)}>＋ 写下今天</button>
-    <button className="text-button" style={{ margin: "10px auto", display: "block" }} onClick={() => setPromiseCreating(true)}>立下一个重要承诺</button>
-    <p className="muted center">计分承诺：已用 {view.us.scoringUsage.used}/{view.us.scoringUsage.max} 项（今日已新增 {view.us.scoringUsage.todayNew} 项）</p>
 
     <DiaryEditor open={creating} onClose={() => setCreating(false)} busy={busy} act={act} virtualNow={view.modes.virtualNow} />
     <DiaryDetail open={openDiary} onClose={() => setOpenDiary(null)} user={user} busy={busy} act={act} onEvidence={setEvidence} />
@@ -177,12 +239,17 @@ function DiaryEditor({ open, onClose, busy, act, virtualNow }: { open: boolean; 
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploads, setUploads] = useState<UploadedAttachment[]>([]);
   const [asDraft, setAsDraft] = useState(false);
+  // v2.7：每次打开生成新的幂等键 —— 网络重试/双击提交返回同一条日记，不再产生重复记录。
+  const [idempotencyKey, setIdempotencyKey] = useState("");
   // v2.2 修复：虚拟时钟通过 ref 读取，仅在弹层打开瞬间取默认日期；
   // 1.2s 轮询刷新 virtualNow 不再重置表单（此前正文输入约 1 秒即被清空）。
   const virtualNowRef = useRef(virtualNow);
   virtualNowRef.current = virtualNow;
   useEffect(() => {
-    if (open) { setDate(todayOf(virtualNowRef.current)); setTitle(""); setBody(""); setPhotos([]); setUploads([]); setAsDraft(false); setKind("diary"); }
+    if (open) {
+      setDate(todayOf(virtualNowRef.current)); setTitle(""); setBody(""); setPhotos([]); setUploads([]); setAsDraft(false); setKind("diary");
+      setIdempotencyKey(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `ed-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    }
   }, [open]);
   if (!open) return null;
   return <Modal title="写下今天" onClose={onClose}>
@@ -208,15 +275,16 @@ function DiaryEditor({ open, onClose, busy, act, virtualNow }: { open: boolean; 
     <AttachmentUploader files={uploads} onChange={setUploads} extraCount={photos.length} label={`附件（可选，png / jpg / pdf / md / word，与演示图片合计最多 6 个）`} />
     <label className="checkbox"><input type="checkbox" checked={asDraft} onChange={e => setAsDraft(e.target.checked)} />先存为私人草稿（仅你可见，不通知对方、不存证）</label>
     <Button disabled={busy || !date || !title.trim() || !body.trim()} onClick={async () => {
-      if (await act("diaries", { kind, date, title, body, attachmentIds: photos, attachments: uploads, visibility: asDraft ? "draft" : "shared" })) onClose();
+      if (await act("diaries", { kind, date, title, body, attachmentIds: photos, attachments: uploads, visibility: asDraft ? "draft" : "shared", idempotencyKey })) onClose();
     }}>{busy ? "保存中…" : asDraft ? "保存草稿" : "发给 TA 确认"}</Button>
   </Modal>;
 }
 
-function DiaryDetail({ open, onClose, user, busy, act, onEvidence }: {
+function DiaryDetail({ open, onClose, user, busy, act, onEvidence, readOnly = false }: {
   open: string | null; onClose: () => void; user: string; busy: boolean;
   act(path: string, body?: Record<string, unknown>): Promise<boolean>;
   onEvidence(e: { anchor: TimelineItemDto["anchor"]; business: string; recordId?: string }): void;
+  readOnly?: boolean; // v2.7：旧归档查看 —— 隐藏全部写操作按钮
 }) {
   const [detail, setDetail] = useState<DiaryDetailDto | null>(null);
   const [editing, setEditing] = useState(false);
@@ -228,6 +296,13 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence }: {
     catch { setDetail(null); }
   }, [user]);
   useEffect(() => { if (open) { load(open); setEditing(false); setReturnNote(""); } else setDetail(null); }, [open, load]);
+  // v2.7：弹层打开期间每 1.5s 同步详情 —— 对方改版后弹层内容即时更新，
+  // 配合服务端 expectedVersion 校验，杜绝“看旧版却确认了新版”（实测缺陷 02/06）。
+  useEffect(() => {
+    if (!open || editing) return;
+    const timer = setInterval(() => { void load(open); }, 1500);
+    return () => clearInterval(timer);
+  }, [open, editing, load]);
   if (!open || !detail) return null;
   const version = detail.versions[detail.versions.length - 1];
   const myConfirmed = !!version.confirmations[user];
@@ -252,20 +327,31 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence }: {
       {detail.anchor && <Chip tone={anchorChip.tone}>存证：{anchorChip.label}</Chip>}
       <Chip tone="outline">来源：应用内记录</Chip>
     </div>
-    {version.status === "awaiting" && !myConfirmed && version.author !== user && <>
-      <p className="muted">确认绑定的是版本 {version.version} 的内容；TA 之后任何修改都会生成新版本并重新确认。</p>
-      <Button disabled={busy} onClick={() => act("diaries/confirm", { diaryId: detail.id })}>确认这一版</Button>
+    {readOnly && <p className="muted">这段关系已结束：记录只读，仅双方确认过的版本保留在归档中。</p>}
+    {!readOnly && version.status === "awaiting" && !myConfirmed && version.author !== user && <>
+      <p className="muted">确认绑定的是版本 {version.version} 的内容；TA 之后任何修改都会生成新版本并重新确认。若对方刚刚修改，这里会自动更新并要求重新阅读。</p>
+      {/* v2.7：提交 expectedVersion —— 服务端严格比对，旧版本请求返回冲突（实测缺陷 02）。
+          操作成功后立即重新加载详情，弹层状态不再滞后（实测缺陷 06）。 */}
+      <Button disabled={busy} onClick={async () => {
+        if (await act("diaries/confirm", { diaryId: detail.id, expectedVersion: version.version })) await load(detail.id);
+      }}>确认这一版</Button>
       <input aria-label="退回备注" placeholder="退回时可以留一句话（可选）" value={returnNote} maxLength={120} onChange={e => setReturnNote(e.target.value)} style={{ marginTop: 10 }} />
-      <Button className="secondary" disabled={busy} onClick={() => act("diaries/return", { diaryId: detail.id, note: returnNote })}>退回请 TA 修改</Button>
+      <Button className="secondary" disabled={busy} onClick={async () => {
+        if (await act("diaries/return", { diaryId: detail.id, expectedVersion: version.version, note: returnNote })) await load(detail.id);
+      }}>退回请 TA 修改</Button>
     </>}
-    {version.status === "awaiting" && version.author === user && <>
-      <Button className="ghost" disabled={busy} onClick={() => act("diaries/withdraw", { diaryId: detail.id })}>撤回这一页（不再提交）</Button>
+    {!readOnly && version.status === "awaiting" && version.author === user && <>
+      <Button className="ghost" disabled={busy} onClick={async () => {
+        if (await act("diaries/withdraw", { diaryId: detail.id, expectedVersion: version.version })) await load(detail.id);
+      }}>撤回这一页（不再提交）</Button>
     </>}
-    {version.status === "draft" && version.author === user && <>
+    {!readOnly && version.status === "draft" && version.author === user && <>
       <p className="muted">私人草稿仅你可见。发送后将等待 TA 确认。</p>
-      <Button disabled={busy} onClick={() => act("diaries/share", { diaryId: detail.id })}>发给 TA 确认</Button>
+      <Button disabled={busy} onClick={async () => {
+        if (await act("diaries/share", { diaryId: detail.id })) await load(detail.id);
+      }}>发给 TA 确认</Button>
     </>}
-    {editing ? <>
+    {!readOnly && (editing ? <>
       <label className="field-label" htmlFor="edit-title">修改标题</label>
       <input id="edit-title" maxLength={40} value={title} onChange={e => setTitle(e.target.value)} />
       <label className="field-label" htmlFor="edit-body">修改正文</label>
@@ -276,12 +362,12 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence }: {
         }
       }}>生成新版本并重新确认</Button>
       <Button className="ghost" onClick={() => setEditing(false)}>取消</Button>
-    </> : <Button className="secondary" onClick={() => { setEditing(true); setTitle(version.title); setBody(version.body); }}>修改内容（生成新版本）</Button>}
-    {version.status !== "confirmed" && !detail.anchor && <>
+    </> : <Button className="secondary" onClick={() => { setEditing(true); setTitle(version.title); setBody(version.body); }}>修改内容（生成新版本）</Button>)}
+    {!readOnly && version.status !== "confirmed" && !detail.anchor && <>
       <Button disabled title="需要双方确认这一版本后才能存证">为这一版生成存证</Button>
       <p className="muted center">需要双方确认这一版本后才能生成存证；当前状态：{version.status === "awaiting" ? (myConfirmed ? "等待 TA 确认" : "等待你确认") : version.status === "draft" ? "私人草稿" : "已退回/撤回"}。</p>
     </>}
-    {version.status === "confirmed" && !detail.anchor && <>
+    {!readOnly && version.status === "confirmed" && !detail.anchor && <>
       {/* v2.5（反馈 5）：生成存证成功后立即重新加载详情，弹层内自动变为「查看证据」，无需关闭重开。 */}
       <Button disabled={busy} onClick={async () => {
         if (await act("diaries/anchor", { diaryId: detail.id })) await load(detail.id);
@@ -290,6 +376,46 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence }: {
     </>}
     {detail.anchor && <Button className="ghost" onClick={() => onEvidence({ anchor: detail.anchor, business: "双方已确认的日记版本", recordId: detail.id })}>查看证据</Button>}
     <p className="muted">这一版内容会留下可核验的指纹；原文与附件保存在应用里，哈希无法恢复丢失的内容，请及时导出备份。</p>
+  </Modal>;
+}
+
+// v2.7：旧归档弹层 —— 已结束关系的只读记录列表（实测：此前只有“213 条记录·只读”计数，无法找回内容）。
+function ArchiveModal({ open, onClose, user, onOpenDiary }: {
+  open: string | null; onClose: () => void; user: string;
+  onOpenDiary(id: string): void;
+}) {
+  const [data, setData] = useState<ArchiveSummaryDto | null>(null);
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    if (!open) { setData(null); setSearch(""); return; }
+    getV2<ArchiveSummaryDto>(`diaries/archive?relationshipId=${open}&viewer=${user}`)
+      .then(setData)
+      .catch(() => setData(null));
+  }, [open, user]);
+  if (!open) return null;
+  const keyword = search.trim().toLowerCase();
+  const items = data?.items.filter(i => !keyword || i.title.toLowerCase().includes(keyword) || i.date.includes(keyword)) ?? [];
+  return <Modal title="旧归档（只读）" onClose={onClose}>
+    {!data ? <p className="muted">正在读取归档……</p> : <>
+      <p className="muted">
+        共 {data.total} 条可读记录{data.endedAt ? ` · 关系结束于 ${zhDate(data.endedAt)}` : ""}；
+        只保留双方共同确认过的版本，不能新增或修改。
+      </p>
+      <input aria-label="搜索归档" placeholder="搜索标题或日期（如 2026-09）" value={search} maxLength={40}
+        style={{ width: "100%" }} onChange={e => setSearch(e.target.value)} />
+      <div className="archive-list">
+        {items.length === 0 && <p className="muted center" style={{ padding: "10px 0" }}>没有匹配的归档记录。</p>}
+        {items.map(item => <button className="pending-item" key={item.id} onClick={() => onOpenDiary(item.id)}>
+          <span className="t-icon">{item.kind === "milestone" ? <BellIcon /> : <BookIcon />}</span>
+          <span className="t-main">
+            <strong>{item.title}</strong>
+            <small>{item.date} · {item.kind === "milestone" ? "纪念节点" : "日记"}{item.versionCount > 1 ? ` · ${item.versionCount} 版` : ""}{item.anchored ? " · 已存证" : ""}</small>
+          </span>
+          <Chip tone="outline">查看</Chip>
+        </button>)}
+      </div>
+      <p className="muted">需要完整备份时，可在各记录的「查看证据」中导出证据包。</p>
+    </>}
   </Modal>;
 }
 
@@ -306,12 +432,19 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
   const [scoring, setScoring] = useState(false);
   const [uploads, setUploads] = useState<UploadedAttachment[]>([]);
   const [evidenceNote, setEvidenceNote] = useState("");
+  // v2.7：创建承诺同样走服务端幂等键。
+  const [idempotencyKey, setIdempotencyKey] = useState("");
   const promise = view.us.promises.find(p => p.id === open) ?? null;
   const defaultDueAt = () => {
-    const d = new Date(view.modes.virtualNow + 3 * 86_400_000);
-    return d.toISOString().slice(0, 10);
+    // v2.7：业务时区（北京时间）取默认截止日，与日期校验同口径。
+    return businessDateKey(view.modes.virtualNow + 3 * 86_400_000);
   };
-  useEffect(() => { if (creating) { setContent(""); setDueAt(defaultDueAt()); setCriteria(""); setResponsible("both"); setScoring(false); setUploads([]); } }, [creating]);
+  useEffect(() => {
+    if (creating) {
+      setContent(""); setDueAt(defaultDueAt()); setCriteria(""); setResponsible("both"); setScoring(false); setUploads([]);
+      setIdempotencyKey(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `pr-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    }
+  }, [creating]);
 
   if (creating) return <Modal title="立下一个重要承诺" onClose={() => setCreating(false)}>
     <label className="field-label" htmlFor="promise-content">承诺内容（4–80 字）</label>
@@ -329,7 +462,7 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
       双方同意此项计入履约参考（需在截止前至少 24 小时创建；每段关系最多 10 项）</label>
     <p className="muted">限制人身选择或难以客观判定的承诺（如“永不分手”、亲密行为、密码/定位、借钱）会被拒绝。</p>
     <Button disabled={busy || !content.trim() || !dueAt || !criteria.trim()} onClick={async () => {
-      if (await act("promises", { content, dueAt: Date.parse(`${dueAt}T12:00:00Z`), criteria, responsible, scoringOptIn: scoring, attachments: uploads })) setCreating(false);
+      if (await act("promises", { content, dueAt: Date.parse(`${dueAt}T12:00:00Z`), criteria, responsible, scoringOptIn: scoring, attachments: uploads, idempotencyKey })) setCreating(false);
     }}>{busy ? "保存中…" : "提交承诺（等待 TA 确认）"}</Button>
   </Modal>;
 

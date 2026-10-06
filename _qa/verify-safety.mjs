@@ -126,7 +126,7 @@ const today = async () => new Date((await state("a")).modes.virtualNow).toISOStr
 // 共享旧版（b 确认，先生成存证）+ 私人新版
 const d1 = await post("a", "diaries", { kind: "diary", date: await today(), title: "一起看展", body: "那天我们看了设计展。", visibility: "shared" });
 const diaryId = d1.json.data.diaryId;
-await post("b", "diaries/confirm", { diaryId });
+await post("b", "diaries/confirm", { diaryId, expectedVersion: 1 });
 const anchorRes = await post("a", "diaries/anchor", { diaryId });
 check("T10pre 已确认版本生成存证任务", anchorRes.status === 200, anchorRes.json);
 const d2 = await post("a", "diaries/version", { diaryId, date: await today(), title: "草稿新版本", body: "还没有告诉对方的话。", visibility: "draft", expectedVersion: 1 });
@@ -152,14 +152,14 @@ check("T17a 屏蔽成功（返回脱敏屏蔽记录）", blockRes.status === 200
 let viewB = await state("b");
 check("T17b 屏蔽后对方档案不再透出（连接已级联关闭）", viewB.know.connections.every(c => c.profile === null), viewB.know.connections.map(c => c.profile));
 check("T17c 屏蔽不自动结束关系（status 仍 active）", viewB.us.relationship?.status === "active", viewB.us.relationship?.status);
-const bConfirm = await post("b", "diaries/confirm", { diaryId: awaitingId });
+const bConfirm = await post("b", "diaries/confirm", { diaryId: awaitingId, expectedVersion: 1 });
 check("T17d 屏蔽期间共享确认被冻结（403 中性错误）", bConfirm.status === 403, bConfirm.json);
 const bWrite = await post("b", "diaries", { kind: "diary", date: await today(), title: "屏蔽期间", body: "应该写不进去的一页。", visibility: "shared" });
 check("T17e 屏蔽期间新共享写入被拒绝", bWrite.status === 403, bWrite.json);
 // T18: 屏蔽时待处理邀请取消（此处验证铃声取消 + 无新邀请路径：屏蔽时无待处理邀请，检查铃声）
 // T12: 未共同确认共享版本仅作者可读
 detail = await get("b", `diaries/detail?id=${awaitingId}`);
-check("T12a 屏蔽后对方读不到未共同确认共享版本", detail.status === 200 && !detail.json.data.versions.some(v => v.title === "待确认的一页"), detail.json?.data?.versions);
+check("T12a 屏蔽后对方读不到未共同确认共享版本（v2.7：无可见版本按 404 掩护）", detail.status === 404 || (detail.status === 200 && !detail.json.data.versions.some(v => v.title === "待确认的一页")), { status: detail.status, versions: detail.json?.data?.versions });
 detail = await get("a", `diaries/detail?id=${awaitingId}`);
 check("T12b 作者仍可读自己的版本", detail.status === 200 && detail.json.data.versions.some(v => v.title === "待确认的一页"), detail.json?.data?.versions);
 // T13: 双方已确认历史保留为只读归档

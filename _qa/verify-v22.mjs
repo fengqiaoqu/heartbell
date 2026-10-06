@@ -115,7 +115,7 @@ check("7a. 长正文日记可写入", d1.status === 200);
 const diaryId = d1.json.data.diaryId;
 const detail = await get(`diaries/detail?id=${diaryId}&viewer=b`);
 check("7b. 对方读取正文完整（13 个中文+500 字符=513）", detail.json.data.versions[0].body.length === 513, { len: detail.json.data.versions[0].body.length });
-await post("diaries/confirm", { viewer: "b", diaryId });
+await post("diaries/confirm", { viewer: "b", diaryId, expectedVersion: 1 });
 await post("diaries/anchor", { viewer: "b", diaryId });
 check("7c. 双方确认后可存证", (await state("a")).us.timeline.find(t => t.id === diaryId).anchor?.chainStatus === "unconfigured");
 

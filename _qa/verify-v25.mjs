@@ -208,7 +208,7 @@ r = await post("diaries", { viewer: "a", kind: "diary", date: await today(), tit
 check("1.7b 不支持的附件格式被服务端拒绝", r.status === 400, r.json);
 const diaryDetail = (await get(`diaries/detail?id=${diaryId}&viewer=b`)).json.data;
 check("1.7c 日记详情透出附件（图片缩略/文件下载）", diaryDetail.versions[0].attachments.length === 2, diaryDetail.versions[0].attachments);
-await post("diaries/confirm", { viewer: "b", diaryId });
+await post("diaries/confirm", { viewer: "b", diaryId, expectedVersion: 1 });
 await post("diaries/anchor", { viewer: "a", diaryId });
 const anchored = (await get(`diaries/detail?id=${diaryId}&viewer=a`)).json.data;
 check("1.7d 生成存证后详情立即可见凭证（反馈 5：无需关闭重开）", anchored.anchor !== null && anchored.anchor.chainStatus === "failed", anchored.anchor);

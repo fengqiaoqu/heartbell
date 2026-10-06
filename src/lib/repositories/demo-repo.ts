@@ -47,7 +47,31 @@ export interface V2State {
   privacyAudits: PrivacyAuditEntry[];
   dataExports: DataExportJob[];
   deletions: AccountDeletion[];
+  // v2.7：写入幂等缓存（Idempotency-Key → 已创建记录），网络重试不再产生重复日记/承诺
+  idempotency: IdempotencyRecord[];
   virtualOffsetMs: number;
+}
+
+// v2.7：同 viewer + 同 key 的创建请求返回同一条记录；仅保留最近 200 条防止无限增长。
+export interface IdempotencyRecord {
+  viewer: string;
+  key: string;
+  kind: "diary" | "promise";
+  recordId: string;
+  at: number;
+}
+
+export const IDEMPOTENCY_CACHE_LIMIT = 200;
+
+export function findIdempotentRecord(state: V2State, viewer: string, key: string): IdempotencyRecord | null {
+  return state.idempotency.find(e => e.viewer === viewer && e.key === key) ?? null;
+}
+
+export function rememberIdempotentRecord(state: V2State, entry: IdempotencyRecord): void {
+  state.idempotency.push(entry);
+  if (state.idempotency.length > IDEMPOTENCY_CACHE_LIMIT) {
+    state.idempotency = state.idempotency.slice(-IDEMPOTENCY_CACHE_LIMIT);
+  }
 }
 
 export const DEMO_USER_IDS = ["a", "b"] as const;
@@ -68,6 +92,7 @@ export function createDemoState(now: number): V2State {
     lastSweepAt: null,
     blocks: [], safetyReports: [], safetyTargetRefs: [], restrictions: [],
     privacyAudits: [], dataExports: [], deletions: [],
+    idempotency: [],
     virtualOffsetMs: 0,
   };
   state.users.set("a", {

@@ -3,6 +3,64 @@
 本文件面向协作者，记录每个版本的修改内容、根因与验证情况。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号与 Git 标签对应。
 
+## [v2.7] - 2026-10-07
+
+依据《双用户实测-20261007 测试简报与复现证据》（A/B 双浏览器会话 + 后台 owner/owner2 实测）修复 3 个 P0 权限/版本缺陷与 8 个 P1/P2 体验缺陷。
+本轮原则（实测建议）：先修权限/版本/工单问题，不叠加新玩法。
+
+### P0 修复（接触真实隐私数据前必须修）
+
+- **私人草稿越权读写（实测 01）**：此前对方拿到 diaryId 即可读取详情并改写草稿版本。
+  - `addDiaryVersion` 拒绝非作者改写私人草稿（403）；
+  - `GET /diaries/detail` 无可见版本时按 404 掩护，不再泄露隐藏日记的存在性；
+  - 权限按"作者 + 版本可见性"逐版本服务端裁剪，不依赖前端隐藏。
+- **旧内容确认了新版本（实测 02，双页面 UI 复现）**：确认/退回/撤回请求必须携带 `expectedVersion`（打开弹层时看到的版本号）；其后出现过新的共享版本即返回 409 冲突，必须重新阅读。被对方隐藏草稿超越的共享版本仍可正常确认（不误伤）。前端弹层每 1.5s 自动同步详情，对方改版后弹窗即时更新。
+- **退出后仍可改写共同日记（实测 03）**：改版/发送草稿/确认/退回/撤回统一校验关系状态（active/married）且双方未被屏蔽；关系结束后只读，履约结果确认与计划结算仍走独立流程不受影响。
+
+### P1 修复
+
+- **后台自领工单无法审核（实测 04）**：`GET /ops/session` 与登录响应返回 `accountId`，页面用真实受理人 ID 比较（此前与字符串 `"me"` 比较，自己领取的工单被误判"他人受理"）。自领 → 提交决定全链路恢复。
+- **附件分批添加误报已满（实测 05）**：`attachment-upload.tsx` 剩余额度重复扣减已修正；先选 3 个再选第 4 个可正常加入。
+- **确认后弹窗状态滞后（实测 06）**：确认/退回/撤回/发送草稿成功后立即重载详情；弹层打开期间自动轮询同步（编辑中暂停，不打断输入）。
+- **长列表体验（实测 07）**：「＋ 写下今天」「立下一个重要承诺」固定在列表上方（sticky，不再沉到两万像素深）；待确认超过 5 项折叠为摘要可展开；时间线新增关键字 + 日期搜索与分页加载（每页 20 条）。
+- **旧归档只有计数没有入口（实测 08）**：新增 `GET /diaries/archive` 与归档弹层——已结束关系双方共同确认过的版本可检索、可点开只读查看；归档详情隐藏全部写操作按钮。
+- **请求重试产生重复日记（实测 09）**：`POST /diaries`、`POST /promises` 支持 `Idempotency-Key` 请求头（或 `body.idempotencyKey`），同 viewer + 同键返回首次创建的记录；服务端缓存最近 200 条，前端每次打开表单生成新键。
+- **日期错位与无效日期（实测 10）**：统一业务时区（北京时间 `Asia/Shanghai`）——"写下今天"默认值、日期上限、"每个自然日"计数、纪念节点日期同口径（此前 UTC 在凌晨错记一天）；`2026-02-30` 等无效日历日期按 400 拒绝。
+- **附件校验与前后端口径（实测 11）**：服务端按解码后字节数校验（≤600KB，与前端 `file.size` 一致，此前按 base64 字符串长度放宽到约 650KB）；校验真实文件魔数（png/jpg/pdf/doc/docx），纯文本冒充图片直接拒绝；md 校验 UTF-8 可解码；指纹改为对原始字节取 SHA-256。
+
+### P2 修复
+
+- **未绑定时邀请提醒误导（实测 12）**：「我们」页有待回应邀请时直接显示邀请卡（邀请人 + 接受/婉拒），不再显示"去了解并邀请关系"空态。
+
+### 变更
+
+- `package.json` 版本升至 `2.7.0`；新增 `npm run verify:v27`（`_qa/verify-v27.mjs`，33 项专项回归）。
+- `V2State` 新增 `idempotency` 幂等缓存集合（P1 持久化适配器需同步建表）。
+- 确认/退回/撤回接口入参变更：`{ diaryId }` → `{ diaryId, expectedVersion }`，旧调用返回 400/409；既有验证脚本已同步适配。
+- `MAX_UPLOAD_ATTACHMENT_CHARS`（base64 长度上限）废除，改为 `MAX_UPLOAD_ATTACHMENT_BYTES = 600_000`。
+- 新增领域工具：`businessDateKey()` / `isValidCalendarDate()` / `BUSINESS_TIME_ZONE`（客户端与服务端共用）。
+
+### 涉及文件（主要）
+
+| 层 | 文件 |
+|---|---|
+| 日记服务 | `src/lib/server/v2/services/diary.ts`（写入门槛/版本绑定/幂等/归档）、`attachments.ts`（字节+魔数校验） |
+| API | `src/app/api/v2/[...path]/route.ts`（expectedVersion、Idempotency-Key、/diaries/archive） |
+| 后台 | `src/app/api/v2/ops/[...path]/route.ts` + `src/app/admin/page.tsx`（session.accountId、受理人比较） |
+| 用户端 UI | `src/components/journey/us-tab.tsx`（确认版本绑定/弹窗同步/固定创建栏/搜索分页/待办折叠/邀请卡/归档弹层）、`future-tab.tsx`、`attachment-upload.tsx`、`app-shell`（无改动） |
+| 领域与数据 | `v2-types.ts`（业务时区工具、字节上限）、`demo-repo.ts`（幂等缓存）、`relationship.ts`/`view.ts`（业务时区） |
+| 验证 | `_qa/verify-v27.mjs`（新增）；`scripts/verify-v2.mjs`、`_qa/verify-v22.mjs`、`_qa/verify-v25.mjs`、`_qa/verify-safety.mjs` 适配 expectedVersion 与 404 掩护 |
+
+### 验证
+
+- `npx tsc --noEmit` 通过；`npm run build` 生产构建通过。
+- 隔离实例（端口 3107，APP_MODE=demo）四套回归全部通过：
+  - `_qa/verify-v27.mjs`（新增）：33/33 —— 覆盖实测简报全部 12 项缺陷的修复验证；
+  - `scripts/verify-v2.mjs`：104/104（新增"旧版本确认被拒"断言）；
+  - `_qa/verify-v25.mjs`：68/68；
+  - `_qa/verify-safety.mjs`：76/76（T12a 断言更新为接受 404 掩护）。
+- 演示边界不变：内存仓库（重启清空）、preview 存证未连接真实链；实测简报中的"持久化数据库/站内聊天/提醒分类"等需求建议列入后续版本，不在本轮范围。
+
 ## [v2.6] - 2026-10-07
 
 依据《v2.6修改.md》：①依据《Heartbell-v2.5-Demo登录交付》搭建登录系统；②依据《Heartbell-v2.2-安全与隐私模块交付》搭建安全与隐私模块（M0–M3 完整本地集成）。

@@ -36,7 +36,7 @@ function fail(error: ApiError | Error) {
   );
 }
 
-type Handler = (ctx: { viewer: string | null; body: Record<string, unknown>; params: string[]; url: URL }) => unknown;
+type Handler = (ctx: { viewer: string | null; body: Record<string, unknown>; params: string[]; url: URL; idempotencyKey: string | null }) => unknown;
 
 const routes: Record<string, Handler> = {
   // ---------- 视图 ----------
@@ -45,6 +45,11 @@ const routes: Record<string, Handler> = {
   "GET /diaries/detail": ({ viewer, url }) => {
     const { state, now } = sweepAndNow();
     return diary.getDiaryDetail(state, resolveDemoUser(state, viewer), url.searchParams.get("id"));
+  },
+  // v2.7：已结束关系的只读归档列表（实测：旧归档只有数量没有入口）。
+  "GET /diaries/archive": ({ viewer, url }) => {
+    const { state } = sweepAndNow();
+    return diary.archivedDiaries(state, resolveDemoUser(state, viewer), url.searchParams.get("relationshipId"));
   },
   "GET /trust/summary": ({ viewer, url }) => {
     const { state, now } = sweepAndNow();
@@ -75,15 +80,39 @@ const routes: Record<string, Handler> = {
   "POST /relationships/end": ({ viewer, body }) => { const { state, now } = sweepAndNow(); rel.endRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId, body.reason, now); return { ok: true }; },
   "POST /space-settings": ({ viewer, body }) => { const state = getV2State(); rel.updateSpaceSettings(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId, body); return { ok: true }; },
   // ---------- 我们：日记 ----------
-  "POST /diaries": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const id = diary.createDiary(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true, diaryId: id }; },
+  // v2.7：创建类接口支持 Idempotency-Key 请求头（或 body.idempotencyKey），网络重试返回原记录。
+  "POST /diaries": ({ viewer, body, idempotencyKey }) => {
+    const { state, now } = sweepAndNow();
+    const key = idempotencyKey ?? (typeof body.idempotencyKey === "string" ? body.idempotencyKey : null);
+    const id = diary.createDiary(state, resolveDemoUser(state, body.viewer ?? viewer), body, now, { idempotencyKey: key });
+    return { ok: true, diaryId: id };
+  },
   "POST /diaries/version": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const version = diary.addDiaryVersion(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true, version }; },
   "POST /diaries/share": ({ viewer, body }) => { const { state, now } = sweepAndNow(); diary.shareDraft(state, resolveDemoUser(state, body.viewer ?? viewer), body.diaryId, now); return { ok: true }; },
-  "POST /diaries/confirm": ({ viewer, body }) => { const { state, now } = sweepAndNow(); diary.confirmDiaryVersion(state, resolveDemoUser(state, body.viewer ?? viewer), body.diaryId, now); return { ok: true }; },
-  "POST /diaries/return": ({ viewer, body }) => { const state = getV2State(); diary.returnDiaryVersion(state, resolveDemoUser(state, body.viewer ?? viewer), body.diaryId, body.note); return { ok: true }; },
-  "POST /diaries/withdraw": ({ viewer, body }) => { const state = getV2State(); diary.withdrawDiary(state, resolveDemoUser(state, body.viewer ?? viewer), body.diaryId); return { ok: true }; },
+  // v2.7：确认/退回/撤回必须携带 expectedVersion —— 旧版本请求 409，防止“看旧版确认了新版”。
+  "POST /diaries/confirm": ({ viewer, body }) => {
+    const { state, now } = sweepAndNow();
+    diary.confirmDiaryVersion(state, resolveDemoUser(state, body.viewer ?? viewer), { diaryId: body.diaryId, expectedVersion: body.expectedVersion }, now);
+    return { ok: true };
+  },
+  "POST /diaries/return": ({ viewer, body }) => {
+    const state = getV2State();
+    diary.returnDiaryVersion(state, resolveDemoUser(state, body.viewer ?? viewer), { diaryId: body.diaryId, expectedVersion: body.expectedVersion, note: body.note });
+    return { ok: true };
+  },
+  "POST /diaries/withdraw": ({ viewer, body }) => {
+    const state = getV2State();
+    diary.withdrawDiary(state, resolveDemoUser(state, body.viewer ?? viewer), { diaryId: body.diaryId, expectedVersion: body.expectedVersion });
+    return { ok: true };
+  },
   "POST /diaries/anchor": ({ viewer, body }) => { const { state, now } = sweepAndNow(); diary.anchorDiary(state, resolveDemoUser(state, body.viewer ?? viewer), body.diaryId, now); return { ok: true }; },
   // ---------- 我们：承诺 ----------
-  "POST /promises": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const id = diary.createPromise(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true, promiseId: id }; },
+  "POST /promises": ({ viewer, body, idempotencyKey }) => {
+    const { state, now } = sweepAndNow();
+    const key = idempotencyKey ?? (typeof body.idempotencyKey === "string" ? body.idempotencyKey : null);
+    const id = diary.createPromise(state, resolveDemoUser(state, body.viewer ?? viewer), body, now, { idempotencyKey: key });
+    return { ok: true, promiseId: id };
+  },
   "POST /promises/confirm": ({ viewer, body }) => { const { state, now } = sweepAndNow(); diary.confirmPromise(state, resolveDemoUser(state, body.viewer ?? viewer), body.promiseId, body.expectedRevision, now); return { ok: true }; },
   "POST /promises/return": ({ viewer, body }) => { const state = getV2State(); diary.returnPromise(state, resolveDemoUser(state, body.viewer ?? viewer), body.promiseId); return { ok: true }; },
   "POST /promises/resolutions": ({ viewer, body }) => { const { state, now } = sweepAndNow(); diary.recordResolution(state, resolveDemoUser(state, body.viewer ?? viewer), body.promiseId, body, now); return { ok: true }; },
@@ -219,7 +248,7 @@ export async function GET(request: Request, context: { params: Promise<{ path: s
     if (!routeExemptFromSession(key, path ?? [])) {
       viewer = requireDemoSession(request.headers.get("cookie"), viewer);
     }
-    return ok(handler({ viewer, body: {}, params: path ?? [], url }));
+    return ok(handler({ viewer, body: {}, params: path ?? [], url, idempotencyKey: null }));
   } catch (error) {
     return fail(error as Error);
   }
@@ -248,7 +277,9 @@ export async function POST(request: Request, context: { params: Promise<{ path: 
     if (!routeExemptFromSession(key, path ?? [])) {
       viewer = requireDemoSession(request.headers.get("cookie"), viewer);
     }
-    return ok(handler({ viewer, body, params: path ?? [], url }));
+    // v2.7：读取 Idempotency-Key 请求头（创建类接口的服务端幂等依据）。
+    const idempotencyKey = request.headers.get("idempotency-key");
+    return ok(handler({ viewer, body, params: path ?? [], url, idempotencyKey }));
   } catch (error) {
     return fail(error as Error);
   }

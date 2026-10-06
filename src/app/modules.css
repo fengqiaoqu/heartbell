@@ -159,6 +159,16 @@ input:focus,textarea:focus,select:focus{outline:2px solid #B9436060;border-color
 .timeline-item strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-serif)}
 .timeline-item small{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .timeline-item .t-side{display:grid;gap:5px;justify-items:end;align-content:start}
+/* v2.7：新增入口固定在列表上方（不随长列表沉底） */
+.us-create-bar{display:grid;gap:6px;margin-top:14px;padding:10px;border:1px solid #F1DEE4;border-radius:16px;background:rgba(255,255,255,.92);position:sticky;top:0;z-index:5;backdrop-filter:blur(6px)}
+.us-create-bar .diary-new{margin-top:0}
+.us-create-bar .text-button{justify-self:center}
+/* v2.7：时间线搜索行（关键字 + 日期） */
+.us-search-row{display:flex;gap:8px;align-items:center;margin-top:10px}
+.us-search-row input{flex:1;min-width:0;border:1px solid var(--line);border-radius:12px;padding:8px 10px;font:inherit;font-size:12px;background:#fff}
+.us-search-row input[type="date"]{flex:0 0 auto}
+/* v2.7：旧归档列表（只读） */
+.archive-list{display:grid;gap:2px;margin-top:10px;max-height:46vh;overflow-y:auto}
 .diary-new{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;min-height:48px;padding:12px;border:1.5px dashed #DFA9B8;background:#FFF6F8;color:var(--brand-deep);border-radius:var(--radius-button);font-size:13px;font-weight:700;cursor:pointer}
 /* 承诺印章卡 */
 .promise-card{border:1px solid #E8CDD5;border-radius:16px;padding:15px;background:repeating-linear-gradient(45deg,#FFFDF9,#FFFDF9 8px,#FBF4EE 8px,#FBF4EE 16px)}
