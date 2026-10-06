@@ -5,7 +5,8 @@ import {
 } from "../../../repositories/demo-repo";
 import { badRequest, conflict, forbidden, notFound, versionConflict } from "../errors";
 import { RELATIONSHIP_INVITE_HOURS, RELATIONSHIP_TERMS_VERSION, isActiveBinding } from "../../../domain/relationship";
-import type { ShareScope, V2Relationship } from "../../../domain/v2-types";
+import { ageCohorts, spaceThemeLabels, type ShareScope, type SpaceSettings, type SpaceTheme, type V2Relationship } from "../../../domain/v2-types";
+import { defaultAvatarIds, MAX_UPLOAD_AVATAR_LENGTH } from "../../../domain/avatars";
 import { HOUR } from "../../../domain/relationship";
 import { enqueueAnchor } from "./anchor";
 
@@ -30,6 +31,7 @@ export function proposeRelationship(state: V2State, viewer: string, now: number)
     proposedAt: now, inviteExpiresAt: now + RELATIONSHIP_INVITE_HOURS * HOUR,
     startedAt: null, endedAt: null, endedBy: null, marriedAt: null,
     termsVersion: RELATIONSHIP_TERMS_VERSION, archiveReason: null,
+    spaceSettings: { name: "我们的空间", theme: "peach", showDays: true },
   };
   state.relationships.push(rel);
   return rel;
@@ -134,6 +136,28 @@ function findMemberRelationship(state: V2State, viewer: string, relId: unknown):
   return rel;
 }
 
+// ---------- 空间自定义（v2.2） ----------
+// 仅开放外观与展示项：空间名称 / 主题 / 天数展示。任一成员可改，双方同步可见；
+// 计分规则、存证条款版本、对方资料与履约记录不开放自定义（公平性与合规边界）。
+export function updateSpaceSettings(state: V2State, viewer: string, relationshipId: unknown, patch: Record<string, unknown>): SpaceSettings {
+  const rel = findMemberRelationship(state, viewer, relationshipId);
+  if (!["active", "married"].includes(rel.status) && rel.status !== "proposed") {
+    throw conflict("SPACE_STATE", "关系已结束，空间设置不可修改");
+  }
+  const next: SpaceSettings = { ...rel.spaceSettings };
+  if (patch.name !== undefined) {
+    const name = String(patch.name).trim().slice(0, 16);
+    next.name = name || "我们的空间";
+  }
+  if (patch.theme !== undefined) {
+    if (typeof patch.theme !== "string" || !(patch.theme in spaceThemeLabels)) throw badRequest("无效的空间主题");
+    next.theme = patch.theme as SpaceTheme;
+  }
+  if (patch.showDays !== undefined) next.showDays = patch.showDays === true;
+  rel.spaceSettings = next;
+  return next;
+}
+
 // ---------- 独立授权（不是总开关） ----------
 
 const shareHours = 72;
@@ -182,6 +206,18 @@ export function updateMyProfile(state: V2State, viewer: string, patch: Record<st
     if (!["serious", "open", "not_now"].includes(String(patch.intention))) throw badRequest("无效交往意向");
     p.intention = patch.intention as "serious" | "open" | "not_now";
   }
+  if (patch.avatar !== undefined) {
+    const avatar = typeof patch.avatar === "string" ? patch.avatar.trim() : "";
+    if (avatar.startsWith("def:")) {
+      if (!defaultAvatarIds.includes(avatar)) throw badRequest("无效的官方头像");
+    } else if (avatar.startsWith("data:image/")) {
+      if (!/^data:image\/(png|jpeg|webp);base64,/.test(avatar)) throw badRequest("头像仅支持 PNG/JPEG/WebP 图片");
+      if (avatar.length > MAX_UPLOAD_AVATAR_LENGTH) throw badRequest("上传头像过大，请重新选择图片");
+    } else if (avatar.length < 1 || avatar.length > 8) {
+      throw badRequest("头像不能为空");
+    }
+    p.avatar = avatar;
+  }
   if (patch.nickname !== undefined) {
     const nickname = String(patch.nickname).trim();
     if (nickname.length < 1 || nickname.length > 16) throw badRequest("称呼 1–16 字");
@@ -189,13 +225,23 @@ export function updateMyProfile(state: V2State, viewer: string, patch: Record<st
   }
   if (patch.ageWindow !== undefined) {
     const w = String(patch.ageWindow).trim();
-    if (w.length > 12) throw badRequest("年龄窗口最多 12 字符");
+    if (w !== "" && !(ageCohorts as readonly string[]).includes(w)) {
+      throw badRequest("出生年代请从选项中选择（如 95后 / 00后）");
+    }
     p.ageWindow = w;
   }
   if (patch.orientation !== undefined) {
-    if (patch.orientation === null || patch.orientation === "") p.orientation = null;
-    else if (!["women", "men", "everyone", "not_say"].includes(String(patch.orientation))) throw badRequest("无效性取向选项");
-    else p.orientation = patch.orientation as typeof p.orientation;
+    if (patch.orientation === null || patch.orientation === "") { p.orientation = null; p.orientationCustom = null; }
+    else if (!["women", "men", "everyone", "other", "not_say"].includes(String(patch.orientation))) throw badRequest("无效性取向选项");
+    else {
+      p.orientation = patch.orientation as typeof p.orientation;
+      if (p.orientation !== "other") p.orientationCustom = null;
+    }
+  }
+  if (patch.orientationCustom !== undefined) {
+    if (p.orientation !== "other" && patch.orientationCustom) throw badRequest("只有选择“其他”时才能自由填写说明");
+    const custom = patch.orientationCustom === null || patch.orientationCustom === "" ? null : String(patch.orientationCustom).trim().slice(0, 12);
+    p.orientationCustom = custom;
   }
   if (patch.mbti !== undefined) {
     const m = patch.mbti === null || patch.mbti === "" ? null : String(patch.mbti).toUpperCase();

@@ -1,11 +1,13 @@
 "use client";
 // 我们（计划书第 5 节 / UI-08/09/10）：关系空间、日记版本、双方确认、承诺与归档。
-import { useCallback, useEffect, useState } from "react";
+// v2.2：日记/承诺草稿不再被轮询刷新覆盖；承诺生效与结算均有存证状态；空间支持自定义。
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, Chip, EmptyState, BookIcon, GiftIcon, BellIcon, StageArt, anchorStatusChip, zhDate } from "../ui";
 import { Modal } from "../modal";
 import { getV2, postV2 } from "../../lib/client/v2-api";
 import { demoImageLibrary } from "../../lib/repositories/demo-images";
 import type { DiaryDetailDto, TimelineItemDto, V2StateView } from "../../lib/domain/view-dtos";
+import { spaceThemeLabels, type SpaceSettings, type SpaceTheme } from "../../lib/domain/v2-types";
 import { EvidenceDrawer } from "./evidence-drawer";
 import type { TabId } from "./app-shell";
 
@@ -24,6 +26,7 @@ export function UsTab({ view, user, busy, act, switchTab }: {
   const [openPromise, setOpenPromise] = useState<string | null>(null);
   const [promiseCreating, setPromiseCreating] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
+  const [spaceOpen, setSpaceOpen] = useState(false);
   const [evidence, setEvidence] = useState<{ anchor: TimelineItemDto["anchor"]; business: string; recordId?: string } | null>(null);
 
   const rel = view.us.relationship;
@@ -48,15 +51,19 @@ export function UsTab({ view, user, busy, act, switchTab }: {
     </>;
   }
 
+  const space = rel.spaceSettings;
   return <>
-    <div className="us-hero">
+    <div className={`us-hero theme-${space.theme}`}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <p className="eyebrow" style={{ marginTop: 0 }}>我们的空间</p>
-          <div className="us-days">{rel.status === "married" ? "已婚（应用内标记）" : `我们的第 ${view.us.daysTogether ?? 1} 天`}</div>
-          <p className="muted">{view.us.nextAnniversaryInDays !== null ? `下一个纪念日还有 ${view.us.nextAnniversaryInDays} 天` : ""}{rel.startedAt ? ` · 自 ${zhDate(rel.startedAt)}` : ""}</p>
+          <p className="eyebrow" style={{ marginTop: 0 }}>{space.name}</p>
+          <div className="us-days">{rel.status === "married" ? "已婚（应用内标记）" : space.showDays ? `我们的第 ${view.us.daysTogether ?? 1} 天` : "我们的空间"}</div>
+          {space.showDays && <p className="muted">{view.us.nextAnniversaryInDays !== null ? `下一个纪念日还有 ${view.us.nextAnniversaryInDays} 天` : ""}{rel.startedAt ? ` · 自 ${zhDate(rel.startedAt)}` : ""}</p>}
         </div>
-        <button className="text-button" onClick={() => setEndOpen(true)}>设置</button>
+        <div style={{ display: "grid", gap: 4, justifyItems: "end" }}>
+          <button className="text-button" onClick={() => setSpaceOpen(true)}>空间设置</button>
+          <button className="text-button" onClick={() => setEndOpen(true)}>关系设置</button>
+        </div>
       </div>
       <div className="status-line">
         <Chip tone="brand">{rel.status === "married" ? "应用内已婚标记（非婚姻核验）" : "在一起"}</Chip>
@@ -84,6 +91,7 @@ export function UsTab({ view, user, busy, act, switchTab }: {
     <DiaryEditor open={creating} onClose={() => setCreating(false)} busy={busy} act={act} virtualNow={view.modes.virtualNow} />
     <DiaryDetail open={openDiary} onClose={() => setOpenDiary(null)} user={user} busy={busy} act={act} onEvidence={setEvidence} />
     <PromiseFlow open={openPromise} onClose={() => setOpenPromise(null)} view={view} user={user} busy={busy} act={act} creating={promiseCreating} setCreating={setPromiseCreating} onEvidence={setEvidence} />
+    <SpaceSettingsModal open={spaceOpen} onClose={() => setSpaceOpen(false)} relationshipId={rel.id} settings={space} busy={busy} act={act} />
 
     {endOpen && <Modal title="关系设置" onClose={() => setEndOpen(false)}>
       <h3>关系详情</h3>
@@ -127,12 +135,18 @@ function TimelineRow({ item, onOpen, onEvidence }: { item: TimelineItemDto; onOp
 
 function DiaryEditor({ open, onClose, busy, act, virtualNow }: { open: boolean; onClose: () => void; busy: boolean; virtualNow: number; act: (p: string, b?: Record<string, unknown>) => Promise<boolean> }) {
   const [kind, setKind] = useState<"diary" | "milestone">("diary");
-  const [date, setDate] = useState(todayOf(virtualNow));
+  const [date, setDate] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [asDraft, setAsDraft] = useState(false);
-  useEffect(() => { if (open) { setDate(todayOf(virtualNow)); setTitle(""); setBody(""); setPhotos([]); setAsDraft(false); setKind("diary"); } }, [open, virtualNow]);
+  // v2.2 修复：虚拟时钟通过 ref 读取，仅在弹层打开瞬间取默认日期；
+  // 1.2s 轮询刷新 virtualNow 不再重置表单（此前正文输入约 1 秒即被清空）。
+  const virtualNowRef = useRef(virtualNow);
+  virtualNowRef.current = virtualNow;
+  useEffect(() => {
+    if (open) { setDate(todayOf(virtualNowRef.current)); setTitle(""); setBody(""); setPhotos([]); setAsDraft(false); setKind("diary"); }
+  }, [open]);
   if (!open) return null;
   return <Modal title="写下今天" onClose={onClose}>
     <div className="kind-options">
@@ -281,6 +295,13 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
   const other = promise.responsibleUserIds.find(uid => uid !== user);
   const myResolution = promise.resolutions[user];
   const otherResolution = other ? promise.resolutions[other] : undefined;
+  // v2.2：印章跟随履约进度（确认完成后不再停留在“承诺生效”）。
+  const results = promise.responsibleUserIds.map(uid => promise.resolutions[uid]?.result ?? "pending");
+  const allFulfilled = results.length > 0 && results.every(r => r === "fulfilled");
+  const allSettled = results.length > 0 && results.every(r => ["fulfilled", "unfulfilled", "waived"].includes(r));
+  const stampClass = promise.status === "active" && (allFulfilled || allSettled) ? "confirmed" : promise.status === "active" ? "confirmed" : "waiting";
+  const stampText = promise.status !== "active" ? "待确认" : allFulfilled ? "已完成" : allSettled ? "已结算" : "承诺\n生效";
+  const anchorChip = anchorStatusChip(promise.anchor?.chainStatus);
   return <Modal title="重要承诺" onClose={onClose}>
     <div className="promise-card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
@@ -289,10 +310,18 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
           <p className="muted">截止 {zhDate(promise.dueAt)} · 验收：{promise.criteria}</p>
           <p className="muted">责任人：{promise.responsibleUserIds.length > 1 ? "双方" : myResponsible ? "我" : "TA"}</p>
         </div>
-        <span className={`stamp ${promise.status === "active" ? "confirmed" : "waiting"}`}>{promise.status === "active" ? "承诺\n生效" : "待确认"}</span>
+        <span className={`stamp ${stampClass}`}>{stampText}</span>
       </div>
       <p className="muted">{promise.scoringOptIn ? "此项计入履约参考（双方事前同意）" : "浪漫约定，不计入履约分"}</p>
     </div>
+    <div className="status-line">
+      {promise.anchor
+        ? <Chip tone={anchorChip.tone}>存证：{anchorChip.label}</Chip>
+        : <Chip tone="outline">存证：承诺生效后生成</Chip>}
+      {promise.status === "active" && !promise.anchor && <Chip tone="warning">等待双方确认生效</Chip>}
+    </div>
+    <p className="muted">v2.2 起：承诺经双方确认生效即生成存证任务；履约结算（完成/未完成/豁免）后生成结算存证，均可在“查看证据”中导出核对。</p>
+    {promise.anchor && <Button className="ghost" onClick={() => onEvidence({ anchor: promise.anchor!, business: "承诺生效与履约结算存证", recordId: promise.id })}>查看证据</Button>}
     {promise.status === "proposed" && !promise.confirmations[user] && <>
       <p className="muted">提出者单方面写下不代表你同意。确认后承诺生效。</p>
       <Button disabled={busy} onClick={() => act("promises/confirm", { promiseId: promise.id, expectedRevision: promise.revision })}>确认承诺</Button>
@@ -324,6 +353,41 @@ function PromiseFlow({ open, onClose, view, user, busy, act, creating, setCreati
       </Card>;
     })}
     <p className="muted">单方申诉不会直接扣分：分数冻结为“申诉中”，由人工复核后更新摘要版本。</p>
+  </Modal>;
+}
+
+// 空间自定义（v2.2 需求 10）：只开放外观与展示项。
+// 需求确认结论：可自定义 = 空间名称 / 空间主题 / 天数与纪念日显示；
+// 不可自定义 = 履约计分规则、存证条款版本、对方资料、承诺与日记历史（公平性与合规边界）。
+function SpaceSettingsModal({ open, onClose, relationshipId, settings, busy, act }: {
+  open: boolean; onClose: () => void; relationshipId: string; settings: SpaceSettings;
+  busy: boolean; act(path: string, body?: Record<string, unknown>): Promise<boolean>;
+}) {
+  const [name, setName] = useState(settings.name);
+  const [theme, setTheme] = useState<SpaceTheme>(settings.theme);
+  const [showDays, setShowDays] = useState(settings.showDays);
+  useEffect(() => { if (open) { setName(settings.name); setTheme(settings.theme); setShowDays(settings.showDays); } }, [open, settings.name, settings.theme, settings.showDays]);
+  if (!open) return null;
+  return <Modal title="空间设置" onClose={onClose}>
+    <label className="field-label" htmlFor="space-name">空间名称（16 字内，双方可见）</label>
+    <input id="space-name" maxLength={16} value={name} placeholder="例如：小铃和阿响的小屋" onChange={e => setName(e.target.value)} />
+    <label className="field-label">空间主题</label>
+    <div className="theme-swatches">
+      {(Object.keys(spaceThemeLabels) as SpaceTheme[]).map(key => (
+        <button key={key} type="button" className={`theme-swatch theme-${key} ${theme === key ? "chosen" : ""}`}
+          aria-pressed={theme === key} onClick={() => setTheme(key)}>
+          <i aria-hidden="true" />{spaceThemeLabels[key]}
+        </button>
+      ))}
+    </div>
+    <label className="checkbox"><input type="checkbox" checked={showDays} onChange={e => setShowDays(e.target.checked)} />
+      显示“在一起第 N 天”与纪念日倒计时（关闭后仅显示空间名称）</label>
+    <p className="muted">任一成员都可以修改空间设置，改动立即对双方生效。</p>
+    <Button disabled={busy || !name.trim()} onClick={async () => {
+      if (await act("space-settings", { relationshipId, name: name.trim(), theme, showDays })) onClose();
+    }}>保存空间设置</Button>
+    <h3 style={{ marginTop: 16 }}>哪些内容不支持自定义</h3>
+    <p className="muted">为保证公平与证据可信，以下内容不随空间外观变化：履约分与计分规则、存证条款与证据、对方的资料与授权、双方已确认的日记与承诺历史。</p>
   </Modal>;
 }
 

@@ -3,7 +3,7 @@ import type {
   AnchorEvidence, AttachmentRef, CommitmentPlan, GoalClaim, LedgerEntry,
   RelationshipStatus, RewardChoice, RunModes, ShareGrantV2, TimelineKind,
   TrustSnapshotV2, VerificationLevel, Intention, PromiseResolutionResult, Benefit,
-  Orientation, V2Profile,
+  Orientation, SpaceSettings, V2Profile,
 } from "./v2-types";
 
 export interface ModesDto extends RunModes { virtualNow: number; realNow: number }
@@ -30,6 +30,7 @@ export interface PublicProfileDto {
   avatar: string;
   ageWindow: string;
   orientation: Orientation | null;
+  orientationCustom: string | null; // 选“其他”时的自由填写说明（v2.2）
   mbti: string | null;
   interests: string[];
   bio: string;
@@ -66,6 +67,7 @@ export interface RelationshipDto {
   endedAt: number | null;
   marriedAt: number | null;
   termsVersion: string;
+  spaceSettings: SpaceSettings; // v2.2：空间名称/主题/天数展示
 }
 
 export interface TimelineItemDto {
@@ -112,6 +114,7 @@ export interface PromiseDetailDto {
   revision: number;
   confirmations: Record<string, number>;
   resolutions: Record<string, { result: PromiseResolutionResult; note: string | null; settledAt: number | null; confirmedBy: string[] }>;
+  anchor: AnchorEvidence | null; // v2.2：承诺生效/结算的存证状态
 }
 
 export interface UsDto {

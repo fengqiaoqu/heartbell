@@ -2,7 +2,7 @@
 // V2 应用壳：四栏（相遇/了解/我们/相守）+ 头像进入“我的”（计划书 7.2/7.3）。
 // A/B 双窗口状态独立；?tab= 保存当前栏目，返回和刷新恢复位置。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PhoneFrame, Button, ErrorBanner, BellIcon, BookIcon, ChatIcon, GiftIcon, HeartbellLogo } from "../ui";
+import { PhoneFrame, Button, ErrorBanner, Avatar, BellIcon, BookIcon, ChatIcon, GiftIcon, HeartbellLogo } from "../ui";
 import { Modal } from "../modal";
 import { fetchState, friendlyError, postV2 } from "../../lib/client/v2-api";
 import type { V2StateView } from "../../lib/domain/view-dtos";
@@ -91,7 +91,7 @@ export function JourneyShell({ user }: { user: "a" | "b" }) {
     <header className="app-header">
       <div className="brand"><HeartbellLogo size={32} /><span>心动铃铛<small>{user === "a" ? "小铃" : "阿响"} · 演示窗口 {user.toUpperCase()}</small></span></div>
       <button className="avatar-button" aria-label="打开我的" onClick={() => setMeOpen(true)}>
-        {view?.me.profile.avatar ?? "♡"}{badges.us && <i className="dot" />}
+        <Avatar value={view?.me.profile.avatar} size={38} className="avatar-in-button" />{badges.us && <i className="dot" />}
       </button>
     </header>
     <div className="phone-scroll" ref={scroll}>

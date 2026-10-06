@@ -3,6 +3,21 @@
 日期：2026-10-07 · 分支：`feature/v2-journey-product`（自 `feature/couple-diary-onchain` 创建）
 规格依据：《心动铃铛-全链条恋爱产品计划书-AI执行版.md》V2.0
 
+## v2.2 修改记录（依据《v2.2修改.md》10 条反馈）
+
+1. **性取向“其他”自由填写**：`Orientation` 新增 `other`；`V2Profile.orientationCustom`（≤12 字，仅选“其他”时可填，非“其他”时服务端拒绝并自动清空）；展示统一走 `orientationDisplay()`（我的/了解页均显示“其他：xxx”）。
+2. **文案**：“+ 添加一栏联系方式”→“+ 添加联系方式”。
+3. **头像自定义**：新增 `src/lib/domain/avatars.ts`（6 个官方头像：铃铛/晚樱/咖啡/奶猫/星月/音符，品牌色 SVG 插画）与统一 `Avatar` 组件（`def:` 官方 / `data:image` 上传 / 历史表情三形态）；编辑资料含头像九宫格 + 上传（前端 canvas 压缩 256×256 JPEG，服务端校验 MIME 与 ≤300k 字符）。头像出现在顶栏按钮、我的、了解页。
+4. **年龄窗口→出生年代**：`ageCohorts`（70后—05后）下拉选择；服务端拒绝旧格式区间；展示标签改“出生年代”。
+5. **邮箱验证去掉**：fixtures 的 `verificationLevels` 移除“邮箱已验证”。
+6. **雷达倒计时修复**：根因——前端 `remaining = expiresAt − virtualNow − tick×1s`，而 shell 每 1.2s 轮询已刷新 `virtualNow`，双重计时导致 10 分钟约 5 分钟走完、重进页面 tick 归零时间“跳回”。修复：以“到期时间 − (virtualNow + 距上次同步的真实毫秒)”计算，每秒仅触发重绘；倒计时显示精确到秒。服务端 `setRadar`：雷达已开启时重复调用只更新特征、**不重置 expiresAt**（关闭/到期后重开才新一轮）。浏览器实测 3.2s 实际时间恰好递减 3 秒。
+7. **日记写入修复**：根因——`DiaryEditor` 重置 effect 依赖 `[open, virtualNow]`，轮询每 1.2s 刷新 `virtualNow` → 表单（标题/正文/图片/草稿勾选）被周期清空；`MeDrawer` 的 `[editOpen, view]` 同理。修复：虚拟时钟经 ref 读取、仅在弹层打开瞬间初始化一次。浏览器实测输入 3.6s（3 轮轮询）后内容完好并成功保存。
+8. **承诺存证（上链）**：`confirmPromise` 双方确认生效 → `enqueueAnchor("promise", v1)`（条款：内容/验收/截止/责任人/计分/双方确认时间）；`maybeAnchorPromiseSettlement` 在全部责任人结算（fulfilled 需对方确认证据、unfulfilled 本人确认即成立、waived 双方豁免）后锚定 v2（结果+证据+确认人），争议复核（演示台）后锚定 v3 并链上 `previousVersionCommitment` 指向 v2；`PromiseDoc.anchor/previousVersionCommitment` 落位，时间线与承诺弹层展示存证状态与“查看证据”。
+9. **履约提示修复**：`resolutionStatusText` 原先只要任一责任项有证据就显示“待确认履约证据”（确认完仍残留）。改为：仅当存在“pending 且已提交证据”的责任项才提示；部分结算显示“部分已完成”、全部完成“已完成”、含未完成“已结算（含未完成）”；承诺弹层印章跟随进度（已完成/已结算/承诺生效/待确认）。
+10. **空间设置**：`V2Relationship.spaceSettings`（name/theme/showDays，建关系时初始化默认值）+ `POST /space-settings`（成员可改，双方同步）；UI 独立“空间设置”弹层（名称输入、5 款主题色板、天数显示开关），hero 按主题着色（theme-sakura/mint/amber/moon CSS）。**需求确认**：可自定义=名称/主题/天数展示（未来候选：封面、纪念日清单、情侣问答）；不可自定义=计分规则/存证条款/对方资料/已确认历史（公平与合规）。
+
+v2.2 验证：`node _qa/verify-v22.mjs` 38 项专项全部通过；`npm run verify:v2` 103 项回归通过；typecheck、干净 build 通过；浏览器实测覆盖：资料草稿 3.6s 不清空并保存（含“其他：待探索中”、星月头像）、日记写入 3.6s 不清空并保存、空间设置改名+换主题即时生效（`us-hero theme-sakura`）、雷达倒计时 1 倍速单调递减、重复开启不重置到期时间（492s 剩余而非重置 600s）。
+
 ## v2.1 修改记录（依据《v2.1修改.md》9 条建议）
 
 1. **成年声明**：移到「我的 → 成年声明」一次性勾选；雷达页未声明时按钮引导去我的，不再每次勾选。

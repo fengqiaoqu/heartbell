@@ -32,6 +32,13 @@ export function setRadar(state: V2State, viewer: string, active: boolean, traits
     if (value.length < 1 || value.length > 20) throw badRequest("每项特征 1–20 字");
     return { category: category as Trait["category"], value };
   });
+  const existing = state.radar.get(viewer);
+  // v2.2 修复：雷达已在开启状态时重复调用不再重置 10 分钟倒计时（本轮剩余时间保持不变），
+  // 只更新临时特征；到期/关闭后重新开启才从新的 10 分钟起算（sweep 已把过期雷达置为关闭）。
+  if (existing?.active && existing.expiresAt !== null) {
+    existing.traits = parsed;
+    return;
+  }
   state.radar.set(viewer, {
     active: true, traits: parsed, zone: "wuhan-demo-block",
     startedAt: now, expiresAt: now + 600_000,

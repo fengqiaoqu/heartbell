@@ -8,6 +8,7 @@ import type {
 } from "../domain/v2-types";
 import { INVEST_PER_USER, PLAN_TERMS_VERSION, REWARD_POOL_START } from "../domain/plan-rules";
 import { RELATIONSHIP_TERMS_VERSION } from "../domain/relationship";
+import { defaultSpaceSettings } from "../domain/v2-types";
 import { computeTrust } from "../domain/score";
 import { demoImageLibrary } from "./demo-images";
 export { demoImageLibrary };
@@ -51,7 +52,7 @@ export function createDemoState(now: number): V2State {
   state.users.set("a", {
     id: "a", kind: "demo", adultDeclared: false,
     profile: {
-      nickname: "小铃", avatar: "☕", ageWindow: "24–32", orientation: "not_say", mbti: "INFP",
+      nickname: "小铃", avatar: "def:coffee", ageWindow: "00后", orientation: "not_say", orientationCustom: null, mbti: "INFP",
       interests: ["咖啡", "音乐", "散步"], intention: "open",
       bio: "想认识一个愿意一起慢慢走的人。",
       contacts: [
@@ -60,7 +61,6 @@ export function createDemoState(now: number): V2State {
       ],
     },
     verificationLevels: [
-      { label: "邮箱已验证", verified: false },
       { label: "钱包控制权已验证", verified: false },
       { label: "真人/身份核验", verified: false },
     ],
@@ -68,7 +68,7 @@ export function createDemoState(now: number): V2State {
   state.users.set("b", {
     id: "b", kind: "demo", adultDeclared: false,
     profile: {
-      nickname: "阿响", avatar: "🌷", ageWindow: "25–33", orientation: "men", mbti: "ISFJ",
+      nickname: "阿响", avatar: "def:cat", ageWindow: "95后", orientation: "men", orientationCustom: null, mbti: "ISFJ",
       interests: ["猫咪", "音乐", "展览"], intention: "serious",
       bio: "慢热，但认真。想认真认识一个人。",
       contacts: [
@@ -77,7 +77,6 @@ export function createDemoState(now: number): V2State {
       ],
     },
     verificationLevels: [
-      { label: "邮箱已验证", verified: false },
       { label: "钱包控制权已验证", verified: false },
       { label: "真人/身份核验", verified: false },
     ],
@@ -87,7 +86,7 @@ export function createDemoState(now: number): V2State {
   state.users.set(exId, {
     id: exId, kind: "fixture", adultDeclared: true,
     profile: {
-      nickname: "演示前史对象", avatar: "🕯️", ageWindow: "", orientation: null, mbti: null,
+      nickname: "演示前史对象", avatar: "🕯️", ageWindow: "", orientation: null, orientationCustom: null, mbti: null,
       interests: [], intention: "open",
       bio: "虚构演示数据，用于展示履约参考的计算方式。", contacts: [],
     },
@@ -101,6 +100,7 @@ export function createDemoState(now: number): V2State {
     proposedAt: relStart, inviteExpiresAt: relStart + 72 * HOUR,
     startedAt: relStart, endedAt: relEnd, endedBy: "b", marriedAt: null,
     termsVersion: RELATIONSHIP_TERMS_VERSION, archiveReason: "演示前史（虚构）",
+    spaceSettings: { ...defaultSpaceSettings },
   };
   state.relationships.push(fxRel);
   // 5 项计分承诺：4 fulfilled + 1 unfulfilled => s=4 f=1 n=5 => 71 分。

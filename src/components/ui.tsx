@@ -1,7 +1,22 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { avatarKind, officialAvatarOf } from "../lib/domain/avatars";
 
 export function Button(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button {...props} className={`button ${props.className ?? ""}`} />;
+}
+// 头像渲染（v2.2）：官方头像 SVG / 自由上传图片 / 历史表情符号三种形态统一入口。
+export function Avatar({ value, size = 64, className = "" }: { value: string | null | undefined; size?: number; className?: string }) {
+  const kind = avatarKind(value);
+  const style = { width: size, height: size };
+  if (kind === "image" && value) {
+    return <span className={`hb-avatar ${className}`} style={style}><img src={value} alt="头像" /></span>;
+  }
+  if (kind === "official" && value) {
+    const found = officialAvatarOf(value);
+    if (found) return <span className={`hb-avatar ${className}`} style={style} dangerouslySetInnerHTML={{ __html: found.svg }} role="img" aria-label={found.label} />;
+  }
+  const emoji = value || "♡";
+  return <span className={`hb-avatar emoji ${className}`} style={{ ...style, fontSize: Math.round(size * 0.5) }}>{emoji}</span>;
 }
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return <section className={`card ${className ?? ""}`}>{children}</section>;

@@ -1,21 +1,26 @@
 "use client";
-// 我的（计划书 UI-16 / v2.1）：完整资料编辑（称呼/性取向/年龄窗口/介绍/爱好标签/MBTI）、
+// 我的（计划书 UI-16 / v2.1 / v2.2）：完整资料编辑（称呼/头像/性取向（可自由填写其他）/出生年代/介绍/爱好标签/MBTI）、
 // 成年声明（一次性，在资料内勾选）、联系方式多栏（微信/手机号默认 + 可添加）、授权管理、钱包、账本。
+// v2.2 修复：编辑草稿不再被 1.2s 轮询刷新覆盖（此前输入内容会被清空）。
 import { useEffect, useState } from "react";
-import { Button, Card, Chip } from "../ui";
+import { Avatar, Button, Chip } from "../ui";
 import { Modal } from "../modal";
 import { WalletPanel } from "../wallet-panel";
 import type { V2StateView } from "../../lib/domain/view-dtos";
-import { intentionLabels, mbtiOptions, orientationLabels, type ContactEntry, type Intention, type Orientation } from "../../lib/domain/v2-types";
+import { ageCohorts, intentionLabels, mbtiOptions, orientationDisplay, orientationLabels, type ContactEntry, type Intention, type Orientation } from "../../lib/domain/v2-types";
+import { officialAvatars } from "../../lib/domain/avatars";
 import { exportEvidence } from "./us-tab";
 
-const emptyDraft = (v: V2StateView): {
-  nickname: string; ageWindow: string; orientation: Orientation | ""; mbti: string;
-  bio: string; intention: Intention; interests: string[]; contacts: ContactEntry[];
-} => ({
+type ProfileDraft = {
+  nickname: string; ageWindow: string; orientation: Orientation | ""; orientationCustom: string;
+  mbti: string; bio: string; intention: Intention; interests: string[]; contacts: ContactEntry[]; avatar: string;
+};
+
+const emptyDraft = (v: V2StateView): ProfileDraft => ({
   nickname: v.me.profile.nickname,
   ageWindow: v.me.profile.ageWindow,
   orientation: v.me.profile.orientation ?? "",
+  orientationCustom: v.me.profile.orientationCustom ?? "",
   mbti: v.me.profile.mbti ?? "",
   bio: v.me.profile.bio,
   intention: v.me.profile.intention,
@@ -23,7 +28,31 @@ const emptyDraft = (v: V2StateView): {
   contacts: v.me.profile.contacts.length
     ? v.me.profile.contacts.map(c => ({ ...c }))
     : [{ id: "c-wechat", label: "微信", value: "" }, { id: "c-phone", label: "手机号", value: "" }],
+  avatar: v.me.profile.avatar,
 });
+
+// 上传头像：本地压缩到 256×256 JPEG（≤220KB），演示仓库内保存 base64，不上传任何服务器。
+async function readAvatarFile(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) throw new Error("请选择图片文件");
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("图片解码失败"));
+    image.src = dataUrl;
+  });
+  const canvas = document.createElement("canvas");
+  const scale = Math.min(1, 256 / Math.max(img.width, img.height));
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
 
 export function MeDrawer({ open, onClose, view, busy, act }: {
   open: boolean; onClose: () => void; view: V2StateView | null; busy: boolean;
@@ -31,33 +60,44 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
 }) {
   const [walletOpen, setWalletOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [draft, setDraft] = useState<ReturnType<typeof emptyDraft> | null>(null);
+  const [draft, setDraft] = useState<ProfileDraft | null>(null);
   const [interestInput, setInterestInput] = useState("");
+  const [avatarError, setAvatarError] = useState("");
+  // 仅在打开编辑时取一次当前资料做草稿；轮询刷新 view 不再重置草稿（v2.2 修复）。
   useEffect(() => {
-    if (editOpen && view) setDraft(emptyDraft(view));
-  }, [editOpen, view]);
+    if (editOpen && view && draft === null) setDraft(emptyDraft(view));
+  }, [editOpen, view, draft]);
   if (!open || !view) return null;
   const me = view.me;
   const p = me.profile;
+
+  function closeEdit() {
+    setEditOpen(false);
+    setDraft(null);
+    setInterestInput("");
+    setAvatarError("");
+  }
 
   function saveProfile() {
     if (!draft) return;
     act("profile", {
       nickname: draft.nickname.trim() || p.nickname,
-      ageWindow: draft.ageWindow.trim(),
+      avatar: draft.avatar,
+      ageWindow: draft.ageWindow,
       orientation: draft.orientation || null,
+      orientationCustom: draft.orientation === "other" ? draft.orientationCustom.trim() : "",
       mbti: draft.mbti || null,
       bio: draft.bio.trim(),
       intention: draft.intention,
       interests: draft.interests,
       contacts: draft.contacts.filter(c => c.label.trim() && c.value.trim()),
-    }).then(ok => { if (ok) setEditOpen(false); });
+    }).then(ok => { if (ok) closeEdit(); });
   }
 
   return <>
     <Modal title="我的" onClose={onClose}>
       <div className="profile-head">
-        <div className="reveal-avatar">{p.avatar}</div>
+        <Avatar value={p.avatar} size={64} className="reveal-avatar" />
         <div>
           <h3 style={{ margin: 0 }}>{p.nickname}</h3>
           <span className="intent-badge">意向：{intentionLabels[p.intention]}</span>
@@ -68,8 +108,8 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
       </div>
 
       <h3 style={{ marginTop: 16 }}>我的资料</h3>
-      <div className="me-row"><b>年龄窗口</b><span>{p.ageWindow || "未填写"}</span></div>
-      <div className="me-row"><b>性取向</b><span>{p.orientation ? orientationLabels[p.orientation] : "未填写"}</span></div>
+      <div className="me-row"><b>出生年代</b><span>{p.ageWindow || "未填写"}</span></div>
+      <div className="me-row"><b>性取向</b><span>{p.orientation ? orientationDisplay(p.orientation, p.orientationCustom) : "未填写"}</span></div>
       <div className="me-row"><b>MBTI</b><span>{p.mbti ?? "未填写"}</span></div>
       <div className="me-row"><b>一句话介绍</b><span style={{ textAlign: "right" }}>{p.bio || "未填写"}</span></div>
       <div className="me-row" style={{ alignItems: "flex-start" }}><b>爱好标签</b>
@@ -133,16 +173,60 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
       </details>
     </Modal>
 
-    {editOpen && draft && <Modal title="编辑个人资料" onClose={() => setEditOpen(false)}>
+    {editOpen && draft && <Modal title="编辑个人资料" onClose={closeEdit}>
       <label className="field-label" htmlFor="pf-nickname">称呼</label>
       <input id="pf-nickname" maxLength={16} value={draft.nickname} onChange={e => setDraft({ ...draft, nickname: e.target.value })} />
-      <label className="field-label" htmlFor="pf-age">年龄窗口（如 24–32）</label>
-      <input id="pf-age" maxLength={12} placeholder="如 24–32" value={draft.ageWindow} onChange={e => setDraft({ ...draft, ageWindow: e.target.value })} />
+
+      <label className="field-label">头像（6 个官方头像，或自由上传）</label>
+      <div className="avatar-grid">
+        {officialAvatars.map(a => (
+          <button key={a.id} type="button" className={`avatar-option ${draft.avatar === `def:${a.id}` ? "chosen" : ""}`}
+            aria-pressed={draft.avatar === `def:${a.id}`} title={a.label}
+            onClick={() => { setDraft({ ...draft, avatar: `def:${a.id}` }); setAvatarError(""); }}>
+            <Avatar value={`def:${a.id}`} size={44} />
+            <small>{a.label}</small>
+          </button>
+        ))}
+      </div>
+      <div className="avatar-upload-row">
+        <label className="text-button" style={{ cursor: "pointer" }}>
+          + 上传自定义头像
+          <input type="file" accept="image/*" style={{ display: "none" }}
+            onChange={async e => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              try {
+                const dataUrl = await readAvatarFile(file);
+                setDraft(d => (d ? { ...d, avatar: dataUrl } : d));
+                setAvatarError("");
+              } catch (err) {
+                setAvatarError(err instanceof Error ? err.message : "头像处理失败");
+              }
+            }} />
+        </label>
+        <Avatar value={draft.avatar} size={40} />
+      </div>
+      {avatarError && <p className="muted" style={{ color: "var(--danger)" }}>{avatarError}</p>}
+      <p className="muted">上传的图片仅保存在本地演示环境，压缩到 256×256 后使用。</p>
+
+      <label className="field-label" htmlFor="pf-age">出生年代</label>
+      <select id="pf-age" value={draft.ageWindow} aria-label="出生年代" onChange={e => setDraft({ ...draft, ageWindow: e.target.value })}>
+        <option value="">未填写</option>
+        {ageCohorts.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+
       <label className="field-label">性取向</label>
       <select value={draft.orientation} aria-label="性取向" onChange={e => setDraft({ ...draft, orientation: e.target.value as Orientation | "" })}>
         <option value="">未填写</option>
         {(Object.keys(orientationLabels) as Orientation[]).map(o => <option key={o} value={o}>{orientationLabels[o]}</option>)}
       </select>
+      {draft.orientation === "other" && <>
+        <label className="field-label" htmlFor="pf-orientation-custom">自由填写（12 字内，仅本人主动公开）</label>
+        <input id="pf-orientation-custom" maxLength={12} placeholder="例如：泛性恋 / 待探索" value={draft.orientationCustom}
+          onChange={e => setDraft({ ...draft, orientationCustom: e.target.value })} />
+      </>}
+
       <label className="field-label">MBTI</label>
       <select value={draft.mbti} aria-label="MBTI" onChange={e => setDraft({ ...draft, mbti: e.target.value })}>
         <option value="">未填写</option>
@@ -190,14 +274,14 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
           </div>
         ))}
       </div>
-      {draft.contacts.length < 5 && <button className="text-button" onClick={() => setDraft({ ...draft, contacts: [...draft.contacts, { id: `c-new-${draft.contacts.length}`, label: "", value: "" }] })}>+ 添加一栏联系方式</button>}
+      {draft.contacts.length < 5 && <button className="text-button" onClick={() => setDraft({ ...draft, contacts: [...draft.contacts, { id: `c-new-${draft.contacts.length}`, label: "", value: "" }] })}>+ 添加联系方式</button>}
       <label className="field-label">交往意向</label>
       <div className="choice-list">
         {(Object.keys(intentionLabels) as Intention[]).map(key => (
           <button key={key} className={draft.intention === key ? "chosen" : ""} onClick={() => setDraft({ ...draft, intention: key })}>{intentionLabels[key]}</button>
         ))}
       </div>
-      <p className="muted">性取向与年龄窗口由你本人填写并主动公开；双方知情同意的交往选择本身不构成失信，也不进入履约分。</p>
+      <p className="muted">性取向与出生年代由你本人填写并主动公开；双方知情同意的交往选择本身不构成失信，也不进入履约分。</p>
       <Button disabled={busy || !draft.nickname.trim() || !draft.bio.trim() || draft.contacts.some(c => (c.label.trim() ? 1 : 0) !== (c.value.trim() ? 1 : 0))}
         onClick={saveProfile}>保存资料</Button>
     </Modal>}

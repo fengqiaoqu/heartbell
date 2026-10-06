@@ -6,6 +6,7 @@ import { badRequest } from "../errors";
 import { setChainFault, chainFaultActive } from "./anchor";
 import { decideClaim, resolveException } from "./plan";
 import { refreshFor } from "./trust";
+import { maybeAnchorPromiseSettlement } from "./diary";
 
 export function adminSnapshot(state: V2State) {
   requireDemoMode();
@@ -78,6 +79,8 @@ export function adminResolveTrustDispute(state: V2State, promiseId: unknown, fin
   }
   const dispute = state.disputes.find(d => d.targetId === promise.id && !d.resolvedAt);
   if (dispute) { dispute.resolvedAt = t; dispute.resolution = result; }
+  // v2.2：复核结论改变结算结果，锚定新版本存证（版本 3，保留原结算版本）。
+  maybeAnchorPromiseSettlement(state, promise, t, 3);
   const rel = state.relationships.find(r => r.id === promise.relationshipId);
   if (rel) for (const member of rel.members) refreshFor(state, member, t);
 }

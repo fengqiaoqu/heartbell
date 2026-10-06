@@ -25,7 +25,9 @@ function anchorView(state: V2State, job: AnchorJob | undefined, modes: ReturnTyp
 }
 
 function promiseAnchorOf(state: V2State, promise: PromiseDoc, modes: ReturnType<typeof runModes>) {
-  const job = state.anchorJobs.find(j => j.recordId === promise.id);
+  // 承诺有生效（v1）与结算（v2/v3）多个存证任务时，展示最新一个。
+  const jobs = state.anchorJobs.filter(j => j.recordId === promise.id && j.recordType === "promise");
+  const job = jobs.length ? jobs[jobs.length - 1] : undefined;
   return job ? anchorView(state, job, modes) : null;
 }
 
@@ -76,6 +78,7 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
       profile: echoed && other ? {
         nickname: other.profile.nickname, avatar: other.profile.avatar,
         ageWindow: other.profile.ageWindow, orientation: other.profile.orientation,
+        orientationCustom: other.profile.orientationCustom,
         mbti: other.profile.mbti,
         interests: other.profile.interests, bio: other.profile.bio,
         intention: other.profile.intention, contacts: [], // 联系方式绝不随档案返回
@@ -220,17 +223,19 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
         id: myRel.id, status: myRel.status, members: [...myRel.members], nicknameOf,
         proposedBy: myRel.proposedBy, inviteExpiresAt: myRel.inviteExpiresAt,
         startedAt: myRel.startedAt, endedAt: myRel.endedAt, marriedAt: myRel.marriedAt,
-        termsVersion: myRel.termsVersion,
+        termsVersion: myRel.termsVersion, spaceSettings: myRel.spaceSettings,
       } : null,
       incomingInvite: incomingInvite ? {
         id: incomingInvite.id, status: incomingInvite.status, members: [...incomingInvite.members], nicknameOf,
         proposedBy: incomingInvite.proposedBy, inviteExpiresAt: incomingInvite.inviteExpiresAt,
         startedAt: null, endedAt: null, marriedAt: null, termsVersion: incomingInvite.termsVersion,
+        spaceSettings: incomingInvite.spaceSettings,
       } : null,
       outgoingInvite: outgoingInvite ? {
         id: outgoingInvite.id, status: outgoingInvite.status, members: [...outgoingInvite.members], nicknameOf,
         proposedBy: outgoingInvite.proposedBy, inviteExpiresAt: outgoingInvite.inviteExpiresAt,
         startedAt: null, endedAt: null, marriedAt: null, termsVersion: outgoingInvite.termsVersion,
+        spaceSettings: outgoingInvite.spaceSettings,
       } : null,
       daysTogether,
       nextAnniversaryInDays,
@@ -239,6 +244,7 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
         id: p.id, content: p.content, responsibleUserIds: p.responsibleUserIds,
         dueAt: p.dueAt, criteria: p.criteria, scoringOptIn: p.scoringOptIn,
         status: p.status, revision: p.revision, confirmations: p.confirmations, resolutions: p.resolutions,
+        anchor: promiseAnchorOf(state, p, modes),
       })),
       archives,
       scoringUsage: {
@@ -268,15 +274,17 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
 }
 
 function resolutionStatusText(promise: PromiseDoc): string {
-  const results = promise.responsibleUserIds.map(uid => promise.resolutions[uid]?.result ?? "pending");
+  const entries = promise.responsibleUserIds.map(uid => promise.resolutions[uid]);
+  const results = entries.map(r => r?.result ?? "pending");
   if (results.includes("disputed")) return "申诉处理中";
-  if (results.every(r => r === "fulfilled")) return "已完成";
-  if (results.every(r => ["fulfilled", "unfulfilled", "waived"].includes(r))) return "已结算";
-  if (results.some(r => r === "pending")) {
-    const anyEvidence = promise.responsibleUserIds.some(uid => (promise.resolutions[uid]?.confirmedBy.length ?? 0) > 0);
-    return anyEvidence ? "待确认履约证据" : "进行中";
+  if (results.length > 0 && results.every(r => r === "fulfilled")) return "已完成";
+  if (results.every(r => ["fulfilled", "unfulfilled", "waived"].includes(r))) {
+    return results.includes("unfulfilled") ? "已结算（含未完成）" : "已结算";
   }
-  return "进行中";
+  // v2.2 修复：只有“仍存在已提交证据但未经对方确认”的责任项，才提示待确认履约证据；
+  // 证据确认后不再残留旧提示（此前确认完仍显示“待确认履约证据”）。
+  if (entries.some(r => r?.result === "pending" && (r.confirmedBy?.length ?? 0) > 0)) return "待确认履约证据";
+  return results.some(r => r !== "pending") ? "部分已完成" : "进行中";
 }
 
 function hasResolutionToConfirm(promise: PromiseDoc, viewer: string): boolean {

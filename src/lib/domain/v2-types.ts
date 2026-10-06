@@ -11,14 +11,25 @@ export const intentionLabels: Record<Intention, string> = {
   not_now: "暂不寻求稳定关系",
 };
 
-export type Orientation = "women" | "men" | "everyone" | "not_say";
+export type Orientation = "women" | "men" | "everyone" | "other" | "not_say";
 export const orientationLabels: Record<Orientation, string> = {
   women: "喜欢女生",
   men: "喜欢男生",
   everyone: "都喜欢",
+  other: "其他（自由填写）",
   not_say: "暂不说明",
 };
+// 性取向展示：选“其他”时拼接本人自由填写的说明（v2.2）。
+export function orientationDisplay(orientation: Orientation | null, custom: string | null): string {
+  if (!orientation) return "";
+  if (orientation === "other") return custom?.trim() ? `其他：${custom.trim()}` : "其他";
+  return orientationLabels[orientation];
+}
 export const mbtiOptions = ["INFP", "INFJ", "INTP", "INTJ", "ISFP", "ISFJ", "ISTP", "ISTJ", "ENFP", "ENFJ", "ENTP", "ENTJ", "ESFP", "ESFJ", "ESTP", "ESTJ"] as const;
+
+// 出生年代（v2.2 起年龄窗口改为年代选择，不再填写具体年龄区间）。
+export const ageCohorts = ["70后", "75后", "80后", "85后", "90后", "95后", "00后", "05后"] as const;
+export type AgeCohort = (typeof ageCohorts)[number];
 
 export interface ContactEntry {
   id: string;
@@ -28,9 +39,10 @@ export interface ContactEntry {
 
 export interface V2Profile {
   nickname: string;       // 称呼
-  avatar: string;
-  ageWindow: string;      // 年龄窗口，如 "24–32"
+  avatar: string;         // 头像：官方头像 id（def:xxx）/ 自由上传图片（data:image...）/ 历史表情符号
+  ageWindow: string;      // 出生年代，如 "95后"（v2.2 起为年代选项，不再是年龄区间）
   orientation: Orientation | null; // 性取向（本人主动填写）
+  orientationCustom: string | null; // 性取向选“其他”时的自由填写说明（≤12 字）
   mbti: string | null;
   interests: string[];    // 爱好标签
   bio: string;            // 一句话介绍（响铃阶段的最小资料）
@@ -115,6 +127,22 @@ export const relationshipStatusLabels: Record<RelationshipStatus, string> = {
   expired: "邀请已过期",
 };
 
+// 空间自定义（v2.2）：仅开放外观与展示项；计分规则、存证条款、对方资料不可自定义。
+export type SpaceTheme = "peach" | "sakura" | "mint" | "amber" | "moon";
+export const spaceThemeLabels: Record<SpaceTheme, string> = {
+  peach: "蜜桃粉",
+  sakura: "晚樱紫",
+  mint: "薄荷绿",
+  amber: "琥珀橙",
+  moon: "月夜蓝",
+};
+export interface SpaceSettings {
+  name: string;        // 空间名称（≤16 字，默认“我们的空间”）
+  theme: SpaceTheme;   // 空间主题色
+  showDays: boolean;   // 是否显示“在一起第 N 天”与纪念日倒计时
+}
+export const defaultSpaceSettings: SpaceSettings = { name: "我们的空间", theme: "peach", showDays: true };
+
 export interface V2Relationship {
   id: string;
   members: [string, string];
@@ -129,6 +157,7 @@ export interface V2Relationship {
   marriedAt: number | null;
   termsVersion: string;
   archiveReason: string | null;
+  spaceSettings: SpaceSettings; // v2.2：空间名称/主题/天数展示，双方可见，任一成员可改
 }
 
 // ---------- 日记与承诺（我们） ----------

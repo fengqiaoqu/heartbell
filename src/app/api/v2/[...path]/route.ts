@@ -69,6 +69,7 @@ const routes: Record<string, Handler> = {
   "POST /relationships/decline": ({ viewer, body }) => { const state = getV2State(); rel.declineRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId); return { ok: true }; },
   "POST /relationships/cancel": ({ viewer, body }) => { const state = getV2State(); rel.cancelRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId); return { ok: true }; },
   "POST /relationships/end": ({ viewer, body }) => { const { state, now } = sweepAndNow(); rel.endRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId, body.reason, now); return { ok: true }; },
+  "POST /space-settings": ({ viewer, body }) => { const state = getV2State(); rel.updateSpaceSettings(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId, body); return { ok: true }; },
   // ---------- 我们：日记 ----------
   "POST /diaries": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const id = diary.createDiary(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true, diaryId: id }; },
   "POST /diaries/version": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const version = diary.addDiaryVersion(state, resolveDemoUser(state, body.viewer ?? viewer), body, now); return { ok: true, version }; },

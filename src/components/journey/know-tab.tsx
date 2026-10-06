@@ -1,10 +1,10 @@
 "use client";
 // 了解（计划书第 4 节 / UI-05/06）：意向、应用内状态、履约参考、联系方式独立授权、邀请关系。
 import { useState } from "react";
-import { Button, Card, Chip, EmptyState, StageArt, zhDate, countdownText } from "../ui";
+import { Avatar, Button, Card, Chip, EmptyState, StageArt, zhDate, countdownText } from "../ui";
 import { Modal } from "../modal";
 import type { KnowConnectionDto, V2StateView } from "../../lib/domain/view-dtos";
-import { orientationLabels } from "../../lib/domain/v2-types";
+import { orientationDisplay } from "../../lib/domain/v2-types";
 import type { TabId } from "./app-shell";
 
 export function KnowTab({ view, user, busy, act, switchTab }: {
@@ -44,7 +44,7 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
     </div>}
     <Card>
       <div className="profile-head">
-        <div className="reveal-avatar">{conn.profile?.avatar ?? "🔔"}</div>
+        <Avatar value={conn.profile?.avatar} size={64} className="reveal-avatar" />
         <div>
           <h3>{conn.profile?.nickname ?? "尚未揭晓"}</h3>
           {conn.intentionLabel && <span className="intent-badge">意向：{conn.intentionLabel}</span>}
@@ -52,8 +52,8 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
       </div>
       {conn.profile && <>
         <p className="quote-sm" style={{ marginTop: 8 }}>“{conn.profile.bio}”</p>
-        <div className="me-row"><b>年龄窗口</b><span>{conn.profile.ageWindow || "未填写"}</span></div>
-        <div className="me-row"><b>性取向</b><span>{conn.profile.orientation ? orientationLabels[conn.profile.orientation] : "未填写"}</span></div>
+        <div className="me-row"><b>出生年代</b><span>{conn.profile.ageWindow || "未填写"}</span></div>
+        <div className="me-row"><b>性取向</b><span>{conn.profile.orientation ? orientationDisplay(conn.profile.orientation, conn.profile.orientationCustom) : "未填写"}</span></div>
         <div className="me-row"><b>MBTI</b><span>{conn.profile.mbti ?? "未填写"}</span></div>
         <div className="me-row" style={{ alignItems: "flex-start" }}><b>爱好标签</b>
           <span className="interest-tags" style={{ justifyContent: "flex-end" }}>
@@ -64,7 +64,7 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
       <div className="me-row"><b>应用内关系状态</b>
         <span>{conn.appBindingStatus === "none" ? <Chip tone="success">暂无有效恋爱绑定</Chip> : conn.appBindingStatus === "active" ? <Chip tone="warning">已在应用内绑定</Chip> : <Chip tone="warning">应用内已婚标记</Chip>}</span>
       </div>
-      <p className="muted">应用内无绑定不等于现实单身；有绑定也不代表现实已婚。性取向与年龄窗口为对方本人填写，仅作了解参考。</p>
+      <p className="muted">应用内无绑定不等于现实单身；有绑定也不代表现实已婚。性取向与出生年代为对方本人填写，仅作了解参考。</p>
     </Card>
 
     <TrustCard conn={conn} viewerId={view.me.id} busy={busy} act={act} />

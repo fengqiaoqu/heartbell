@@ -39,6 +39,7 @@
 | `POST /relationships/accept` `{relationshipId}` | 服务端原子绑定（同时接受两份只能成功一份）；生成开始事件存证任务与系统纪念节点 |
 | `POST /relationships/decline` / `cancel` | 提案期拒绝/取消 |
 | `POST /relationships/end` `{relationshipId, reason}` | 本人单方退出，立即生效；不等待对方/链上/计划结算；在途计划转例外复核或失效等待 |
+| `POST /space-settings` `{relationshipId, name?, theme?, showDays?}` | v2.2 空间自定义：名称 ≤16 字（空回退默认）、theme ∈ peach/sakura/mint/amber/moon、天数显示开关；任一成员可改，双方同步生效 |
 
 ### 我们：日记与承诺（POST）
 
@@ -49,9 +50,9 @@
 | `POST /diaries/share` / `confirm` / `return` / `withdraw` | 草稿发送；确认绑定具体版本；退回需新版本；作者可撤回 |
 | `POST /diaries/anchor` `{diaryId}` | 需双方确认当前版本；commitment 服务端生成（不接受客户端指定）；preview 下状态=unconfigured（本地指纹，无假交易） |
 | `POST /promises` | 内容 4–80 字；禁止限制人身自由类承诺；计分项：≥24h 提前、每关系 ≤10 项、每自然日 ≤1 项 |
-| `POST /promises/confirm` / `return` | 双方确认生效 |
+| `POST /promises/confirm` / `return` | 双方确认生效；v2.2 起生效（立下）即生成 `promise` 存证任务（版本 1，条款内容） |
 | `POST /promises/resolutions` `{result, note}` | 责任人提交履约证据（fulfilled 需对方确认；unfulfilled 本人确认即成立） |
-| `POST /promises/resolutions/confirm` `{subjectUserId, outcome}` | 对方确认证据（fulfilled）或共同豁免（waived） |
+| `POST /promises/resolutions/confirm` `{subjectUserId, outcome}` | 对方确认证据（fulfilled）或共同豁免（waived）；v2.2 起全部结算后生成存证任务（版本 2，结果内容；争议复核后版本 3） |
 | `POST /promises/resolutions/dispute` | 申诉：结果转 disputed，摘要冻结为"申诉中"，等待人工复核 |
 
 ### 相守（POST）

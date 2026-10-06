@@ -1,11 +1,20 @@
 "use client";
 // 相遇（计划书第 3 节 / UI-02/03）：特征、雷达、铃声列表与关系中停止雷达。
-import { useEffect, useState } from "react";
-import { Button, Card, Chip, EmptyState, RingIcon, StageArt, countdownText } from "../ui";
+// v2.2 修复：倒计时只按服务端返回的到期时间推算，轮询刷新不再叠加本地秒数，
+// 也不会在重进页面时“跳回”更长的剩余时间。
+import { useEffect, useRef, useState } from "react";
+import { Button, Card, Chip, EmptyState, RingIcon, StageArt } from "../ui";
 import type { V2StateView } from "../../lib/domain/view-dtos";
 import type { TabId } from "./app-shell";
 
 const categories = ["穿着", "配饰", "手持物", "当前状态", "其他"] as const;
+
+function radarCountdown(msLeft: number): string {
+  if (msLeft <= 0) return "本轮已结束";
+  const s = Math.ceil(msLeft / 1000);
+  const m = Math.floor(s / 60);
+  return `剩余 ${m} 分 ${String(s % 60).padStart(2, "0")} 秒`;
+}
 
 export function MeetTab({ view, user, busy, act, switchTab, onRing, onNeedAdult }: {
   view: V2StateView; user: string; busy: boolean;
@@ -25,7 +34,15 @@ export function MeetTab({ view, user, busy, act, switchTab, onRing, onNeedAdult 
     if (view.meet.radarActive && view.meet.myTraits.length) setTraits(view.meet.myTraits);
   }, [view.meet.radarActive, view.meet.myTraits]);
 
-  const remaining = view.meet.radarExpiresAt ? view.meet.radarExpiresAt - view.modes.virtualNow - tick * 1000 + 0 : 0;
+  // 每次收到新的虚拟时钟就重置本地计时基准；两次轮询之间用真实时钟平滑推进。
+  const syncRef = useRef({ virtualNow: view.modes.virtualNow, at: Date.now() });
+  if (syncRef.current.virtualNow !== view.modes.virtualNow) {
+    syncRef.current = { virtualNow: view.modes.virtualNow, at: Date.now() };
+  }
+  void tick; // tick 仅用于触发每秒重绘
+  const remaining = view.meet.radarExpiresAt
+    ? Math.max(0, view.meet.radarExpiresAt - view.modes.virtualNow - (Date.now() - syncRef.current.at))
+    : 0;
   const target = view.meet.nearby[0] ?? null;
 
   if (view.meet.blockedByRelationship) {
@@ -86,7 +103,7 @@ export function MeetTab({ view, user, busy, act, switchTab, onRing, onNeedAdult 
       <div className="radar-core" aria-hidden="true"><span className="hb-ring" style={{ display: "inline-flex", width: 40, height: 40, color: "var(--brand)" }}><RingIcon /></span></div>
       {target && <span className="radar-dot">♡</span>}
     </div>
-    <div className="countdown">{countdownText(remaining)}</div>
+    <div className="countdown">{radarCountdown(remaining)}</div>
     {target ? <Card>
       <Chip tone="brand">发现一枚铃铛</Chip>
       <h3 style={{ marginTop: 8 }}>{target.traits.map(t => t.value).join(" · ")}</h3>

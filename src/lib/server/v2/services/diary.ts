@@ -5,10 +5,56 @@ import { badRequest, conflict, forbidden, notFound, versionConflict } from "../e
 import { MAX_SCORING_PER_DAY, MAX_SCORING_PROMISES } from "../../../domain/score";
 import { enqueueAnchor } from "./anchor";
 import { refreshFor } from "./trust";
-import type { DiaryDoc, PromiseDoc, PromiseResolutionResult, RecordVersion } from "../../../domain/v2-types";
+import type { AnchorEvidence, AnchorJob, DiaryDoc, PromiseDoc, PromiseResolutionResult, RecordVersion } from "../../../domain/v2-types";
 import { RELATIONSHIP_TERMS_VERSION } from "../../../domain/relationship";
 
 const HOUR = 3_600_000;
+
+function anchorEvidenceFromJob(job: AnchorJob): AnchorEvidence {
+  return {
+    jobId: job.id, commitment: job.commitment, chainStatus: job.status,
+    txHash: job.txHash, blockNumber: job.blockNumber,
+    networkLabel: job.chainMode === "preview" ? "preview（未连接真实链）" : job.chainMode,
+    error: job.error, createdAt: job.createdAt, updatedAt: job.updatedAt,
+  };
+}
+
+// v2.2 需求 8：承诺履约全部结算（完成/失败/豁免）后，为结算结果生成存证任务（版本 2）。
+// 幂等：同一承诺同一版本只锚定一次；争议复核改写结果后锚定版本 3，保留原版本依据。
+export function maybeAnchorPromiseSettlement(state: V2State, doc: PromiseDoc, now: number, contentVersion = 2): void {
+  if (doc.status !== "active") return;
+  const settled = doc.responsibleUserIds.every(uid => {
+    const r = doc.resolutions[uid];
+    return !!r && ["fulfilled", "unfulfilled", "waived"].includes(r.result) && r.settledAt !== null;
+  });
+  if (!settled) return;
+  const rel = state.relationships.find(r => r.id === doc.relationshipId);
+  if (!rel) return;
+  const previousCommitment = doc.anchor?.commitment ?? null;
+  const job = enqueueAnchor(state, "promise", doc.id, contentVersion, {
+    recordType: "promise", recordId: doc.id, version: contentVersion,
+    relationshipId: doc.relationshipId,
+    businessOccurredAt: new Date(now).toISOString(),
+    previousVersionCommitment: previousCommitment,
+    participants: [...rel.members],
+    content: {
+      phase: contentVersion >= 3 ? "settled_after_review" : "settled",
+      content: doc.content,
+      results: Object.fromEntries(doc.responsibleUserIds.map(uid => [
+        uid,
+        {
+          result: doc.resolutions[uid].result,
+          note: doc.resolutions[uid].note,
+          settledAt: doc.resolutions[uid].settledAt ? new Date(doc.resolutions[uid].settledAt!).toISOString() : null,
+          confirmedBy: [...doc.resolutions[uid].confirmedBy],
+        },
+      ])),
+    },
+    attachmentHashes: [], rulesVersion: RELATIONSHIP_TERMS_VERSION,
+  }, now);
+  doc.previousVersionCommitment = previousCommitment;
+  doc.anchor = anchorEvidenceFromJob(job);
+}
 
 function memberRelationship(state: V2State, viewer: string, relationshipId: unknown) {
   const rel = state.relationships.find(r => r.id === relationshipId && r.members.includes(viewer));
@@ -225,7 +271,27 @@ export function confirmPromise(state: V2State, viewer: string, promiseId: unknow
   if (doc.status !== "proposed") throw conflict("PROMISE_STATE", "承诺当前状态不可确认");
   doc.confirmations[viewer] = now;
   const rel = state.relationships.find(r => r.id === doc.relationshipId)!;
-  if (rel.members.every(m => doc.confirmations[m])) doc.status = "active";
+  if (rel.members.every(m => doc.confirmations[m])) {
+    doc.status = "active";
+    // v2.2：承诺经双方确认生效（“立下”）即生成存证任务，与关系建立/计划条款同轨。
+    const job = enqueueAnchor(state, "promise", doc.id, 1, {
+      recordType: "promise", recordId: doc.id, version: 1,
+      relationshipId: doc.relationshipId,
+      businessOccurredAt: new Date(now).toISOString(),
+      previousVersionCommitment: null,
+      participants: [...rel.members],
+      content: {
+        phase: "activated",
+        content: doc.content, criteria: doc.criteria,
+        dueAt: new Date(doc.dueAt).toISOString(),
+        responsibleUserIds: [...doc.responsibleUserIds], scoringOptIn: doc.scoringOptIn,
+        confirmedAt: { ...doc.confirmations },
+      },
+      attachmentHashes: [], rulesVersion: RELATIONSHIP_TERMS_VERSION,
+    }, now);
+    doc.anchor = anchorEvidenceFromJob(job);
+    doc.previousVersionCommitment = null;
+  }
 }
 
 export function returnPromise(state: V2State, viewer: string, promiseId: unknown): void {
@@ -247,6 +313,7 @@ export function recordResolution(state: V2State, viewer: string, promiseId: unkn
   if (result === "unfulfilled") {
     // 本人确认未完成：立即进入计算。
     doc.resolutions[viewer] = { result: "unfulfilled", note, settledAt: now, confirmedBy: [viewer] };
+    maybeAnchorPromiseSettlement(state, doc, now);
     maybeRefreshTrust(state, doc.relationshipId, now);
   } else {
     doc.resolutions[viewer] = { result: "pending", note, settledAt: null, confirmedBy: [viewer] };
@@ -265,6 +332,7 @@ export function confirmResolution(state: V2State, viewer: string, promiseId: unk
     for (const uid of doc.responsibleUserIds) {
       doc.resolutions[uid] = { result: "waived", note: resolution.note, settledAt: now, confirmedBy: [...doc.responsibleUserIds] };
     }
+    maybeAnchorPromiseSettlement(state, doc, now);
     maybeRefreshTrust(state, doc.relationshipId, now);
     return;
   }
@@ -276,6 +344,7 @@ export function confirmResolution(state: V2State, viewer: string, promiseId: unk
   resolution.result = "fulfilled";
   resolution.settledAt = now;
   resolution.confirmedBy.push(viewer);
+  maybeAnchorPromiseSettlement(state, doc, now);
   maybeRefreshTrust(state, doc.relationshipId, now);
 }
 

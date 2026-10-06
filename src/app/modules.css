@@ -58,6 +58,18 @@ input:focus,textarea:focus,select:focus{outline:2px solid #B9436060;border-color
 /* 揭晓与头像 */
 .reveal-avatar{width:64px;height:64px;margin:6px auto;border-radius:50%;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;font-size:32px}
 .profile-head{display:flex;gap:12px;align-items:center}
+/* v2.2 头像：官方 SVG / 上传图片 / 表情符号统一圆形容器 */
+.hb-avatar{display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--brand-soft);overflow:hidden;flex-shrink:0}
+.hb-avatar svg{width:100%;height:100%;display:block}
+.hb-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.avatar-button .hb-avatar{border:0;background:transparent}
+.avatar-button{padding:0;display:flex;align-items:center;justify-content:center}
+.avatar-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px}
+.avatar-option{display:grid;justify-items:center;gap:3px;padding:8px 4px 6px;border:1px solid var(--line);background:#fff;border-radius:12px;cursor:pointer;font:inherit}
+.avatar-option small{font-size:10px;color:var(--muted)}
+.avatar-option.chosen{border-color:var(--brand);background:var(--brand-soft)}
+.avatar-option.chosen small{color:var(--brand-deep);font-weight:700}
+.avatar-upload-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
 .interest-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .interest-tags span{font-size:11px;color:var(--brand-deep);background:var(--brand-soft);padding:3px 9px;border-radius:12px}
 .intent-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--brand-deep);background:linear-gradient(135deg,#FBE8ED,#F8DCE5);border:1px solid #F1C9D6;padding:5px 11px;border-radius:12px;font-weight:700}
@@ -74,6 +86,28 @@ input:focus,textarea:focus,select:focus{outline:2px solid #B9436060;border-color
 .us-hero{margin-top:14px;border-radius:var(--radius-card);padding:18px 16px;background:linear-gradient(150deg,#FFF6F0,#FBE8ED 70%);border:1px solid #F2DCE2;position:relative;overflow:hidden}
 .us-hero::after{content:"";position:absolute;right:-22px;top:-22px;width:110px;height:110px;border-radius:50%;background:#B9436012;pointer-events:none}
 .us-days{font-size:30px;font-family:var(--font-serif);color:var(--brand-deep)}
+/* v2.2 空间主题（5 款官方主题，仅影响外观，不影响任何规则与存证） */
+.us-hero.theme-sakura{background:linear-gradient(150deg,#F7F4FC,#ECE4F6 70%);border-color:#E0D4EE}
+.us-hero.theme-sakura::after{background:#7C5EA012}
+.us-hero.theme-sakura .us-days{color:#5F4A78}
+.us-hero.theme-mint{background:linear-gradient(150deg,#F2FAF6,#DFF2E9 70%);border-color:#D3E8DD}
+.us-hero.theme-mint::after{background:#27684F12}
+.us-hero.theme-mint .us-days{color:#27684F}
+.us-hero.theme-amber{background:linear-gradient(150deg,#FFF8EE,#FBEBD4 70%);border-color:#EFDDBE}
+.us-hero.theme-amber::after{background:#8C5B1712}
+.us-hero.theme-amber .us-days{color:#7A4E13}
+.us-hero.theme-moon{background:linear-gradient(150deg,#F3F5FA,#E1E8F4 70%);border-color:#D4DCEE}
+.us-hero.theme-moon::after{background:#3E548212}
+.us-hero.theme-moon .us-days{color:#3E5482}
+.theme-swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:6px}
+.theme-swatch{display:grid;justify-items:center;gap:4px;padding:9px 2px;border:1px solid var(--line);background:#fff;border-radius:12px;font-size:10px;color:var(--muted);cursor:pointer}
+.theme-swatch i{width:22px;height:22px;border-radius:50%;display:block}
+.theme-swatch.chosen{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-deep);font-weight:700}
+.theme-swatch.theme-peach i{background:linear-gradient(135deg,#FBE8ED,#F4C4D2)}
+.theme-swatch.theme-sakura i{background:linear-gradient(135deg,#ECE4F6,#C9B6E4)}
+.theme-swatch.theme-mint i{background:linear-gradient(135deg,#DFF2E9,#AFDCC8)}
+.theme-swatch.theme-amber i{background:linear-gradient(135deg,#FBEBD4,#EBCE9C)}
+.theme-swatch.theme-moon i{background:linear-gradient(135deg,#E1E8F4,#B4C3E0)}
 .filter-row{display:flex;gap:8px;margin:14px 0 4px}
 .filter-row button{flex:1;border:1px solid var(--line);background:#fff;border-radius:12px;padding:8px 4px;font-size:12px;cursor:pointer;color:var(--muted);font-weight:600}
 .filter-row button.active{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
