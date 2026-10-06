@@ -1,29 +1,34 @@
 // v2.6 Demo 登录会话（依据《Heartbell-v2.5-Demo登录交付》计划书 2/4/5 节）。
-// 两个固定演示账号（a / b），双 Cookie 槽位（hb_demo_a / hb_demo_b）支持同浏览器双窗口；
+// v2.8（M03 MD-01）：统一 Demo 注册表扩展为 A–F 六个独立账号，支持两个活动并行演示；
+// 双 Cookie 槽位（hb_demo_a … hb_demo_f）支持同浏览器多窗口，各槽位会话彼此独立。
 // 会话表为单进程内存实现，重启后需重新登录（本地演示边界，P1 接持久会话）。
 // 真实时间 8 小时有效，不使用虚拟业务时钟；仅 APP_MODE=demo 可用。
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { forbidden, unauthenticated } from "./v2/errors";
 import { runModes } from "./v2/registry";
+import { demoUserIds, isDemoUserId, type DemoUserId } from "../domain/demo-users";
 
 export const DEMO_SESSION_HOURS = 8;
-export type DemoViewer = "a" | "b" | "c";
-export const demoViewers: DemoViewer[] = ["a", "b", "c"];
+export type DemoViewer = DemoUserId;
+export const demoViewers: DemoViewer[] = [...demoUserIds];
 
 export function slotCookie(viewer: DemoViewer): string {
   return `hb_demo_${viewer}`;
 }
 
 // 固定凭据（公开演示凭据，README 同步列出；密码校验只在服务端执行）。
-// c 为 v2.6 安全验证第三人（始终无权读取 A/B 授权内容，用于负面权限测试）。
+// c 为 v2.6 安全验证第三人；d/e/f 为 v2.8 多人相遇演示账号（活动甲/乙）。
 const presetAccounts: Record<DemoViewer, { username: string; salt: string; hash: Buffer }> = {
   a: { username: "a", salt: "heartbell-demo-a", hash: scryptSync("HeartbellA2026!", "heartbell-demo-a", 32) },
   b: { username: "b", salt: "heartbell-demo-b", hash: scryptSync("HeartbellB2026!", "heartbell-demo-b", 32) },
   c: { username: "c", salt: "heartbell-demo-c", hash: scryptSync("HeartbellC2026!", "heartbell-demo-c", 32) },
+  d: { username: "d", salt: "heartbell-demo-d", hash: scryptSync("HeartbellD2026!", "heartbell-demo-d", 32) },
+  e: { username: "e", salt: "heartbell-demo-e", hash: scryptSync("HeartbellE2026!", "heartbell-demo-e", 32) },
+  f: { username: "f", salt: "heartbell-demo-f", hash: scryptSync("HeartbellF2026!", "heartbell-demo-f", 32) },
 };
 
 export function isDemoViewer(value: unknown): value is DemoViewer {
-  return value === "a" || value === "b" || value === "c";
+  return isDemoUserId(value);
 }
 
 function passwordMatches(account: { salt: string; hash: Buffer }, password: string): boolean {
@@ -57,7 +62,7 @@ function cleanupExpiredSessions(): void {
   }
 }
 
-// 登录：账号 trim 后转小写匹配 a/b；密码区分大小写、原样比较（不 trim）。
+// 登录：账号 trim 后转小写匹配 a–f；密码区分大小写、原样比较（不 trim）。
 // 长度与类型校验先行；错误凭据统一 401，非 demo 模式 403。
 export function loginDemoUser(rawUsername: unknown, rawPassword: unknown): {
   viewer: DemoViewer; sessionId: string; expiresAt: number;
@@ -72,7 +77,7 @@ export function loginDemoUser(rawUsername: unknown, rawPassword: unknown): {
     throw unauthenticated("账号或密码不正确");
   }
   const username = rawUsername.trim().toLowerCase();
-  const viewer: DemoViewer | null = username === "a" ? "a" : username === "b" ? "b" : username === "c" ? "c" : null;
+  const viewer: DemoViewer | null = isDemoUserId(username) ? username : null;
   if (!viewer || !passwordMatches(presetAccounts[viewer], rawPassword)) {
     throw unauthenticated("账号或密码不正确");
   }

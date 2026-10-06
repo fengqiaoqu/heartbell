@@ -91,7 +91,8 @@ export function FutureTab({ view, user, busy, act, switchTab }: {
       <label className="field-label" htmlFor="claim-note">演示材料说明</label>
       <input id="claim-note" maxLength={200} value={evidenceNote} placeholder="例如：双方线下登记（演示剧情）" onChange={e => setEvidenceNote(e.target.value)} />
       <Button disabled={busy || !goalDate || !evidenceNote.trim()} onClick={async () => {
-        if (await act("plans/claims", { planId: plan.id, targetOccurredAt: Date.parse(`${goalDate}T12:00:00Z`), evidenceNote })) setClaimOpen(false);
+        // v2.8 复测修复（N08）：日期按业务时区（北京时间）当日中午提交，服务端按业务日期校验不晚于今天。
+        if (await act("plans/claims", { planId: plan.id, targetOccurredAt: Date.parse(`${goalDate}T12:00:00+08:00`), evidenceNote })) setClaimOpen(false);
       }}>提交审核（审核期 7 天，补正 14 天）</Button>
     </Modal>}
 
@@ -118,8 +119,8 @@ function defaultClaimDate(plan: NonNullable<V2StateView["future"]["plan"]>, now:
   const floor = plan.coolingUntil ?? 0;
   // v2.7：业务时区（北京时间）的日期键，与服务端校验同口径。
   const dateStr = businessDateKey(Math.max(now, floor));
-  // 日期输入按当日 12:00Z 解析；若该时刻仍早于冷静期结束，顺延一天
-  if (Date.parse(`${dateStr}T12:00:00Z`) < floor) {
+  // 日期按业务时区当日中午解析；若仍早于冷静期结束，顺延一天（v2.8：与提交口径一致，均为 +08:00）
+  if (Date.parse(`${dateStr}T12:00:00+08:00`) < floor) {
     return businessDateKey(floor + 86_400_000);
   }
   return dateStr;

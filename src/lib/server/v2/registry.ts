@@ -3,6 +3,7 @@
 import type { CommitmentPlan, RunModes } from "../../domain/v2-types";
 import { balanceOf, createDemoState, postLedger, type V2State } from "../../repositories/demo-repo";
 import { DAY, EXCEPTION_LIMIT_DAYS } from "../../domain/plan-rules";
+import { teardownEventDiscovery } from "./services/events";
 import { forbidden } from "./errors";
 
 const globals = globalThis as typeof globalThis & { heartbellV2?: { state: V2State } };
@@ -51,16 +52,35 @@ export function requireDemoMode(): void {
 }
 
 // 时间驱动的状态迁移：每次读取状态前调用，保证轮询看到一致的过期/到期结果。
+// v2.8（M03）：先处理活动与雷达到期，再处理铃声、短期引用与相遇幂等记录。
 export function sweep(state: V2State): void {
   const t = now(state);
   state.lastSweepAt = Date.now();
+  // 0. 活动自然到期按关闭处理（结束成员身份并清理发现态；closed 不能重开）。
+  for (const event of state.events) {
+    if (event.status !== "closed" && event.endsAt <= t) {
+      event.status = "closed";
+      event.closedReason = "expired";
+      teardownEventDiscovery(state, event.id, true, t);
+    }
+  }
   // 1. 雷达到期
   for (const radar of state.radar.values()) {
     if (radar.active && radar.expiresAt !== null && radar.expiresAt <= t) radar.active = false;
   }
-  // 2. 铃声过期（10 分钟）
+  // 2. 铃声过期：v2.8 起按每条铃声自身的 expiresAt（受双方雷达/活动截止约束），
+  //    兼容无 expiresAt 的历史数据仍按创建后 10 分钟。
   for (const bell of state.bells) {
-    if (bell.status === "pending" && t - bell.createdAt >= 600_000) bell.status = "expired";
+    if (bell.status !== "pending") continue;
+    const deadline = bell.expiresAt ?? bell.createdAt + 600_000;
+    if (t >= deadline) bell.status = "expired";
+  }
+  // 2b. 短期候选引用与相遇幂等记录回收（防轮询无限增长）。
+  if (state.candidateRefs.length > 0) {
+    state.candidateRefs = state.candidateRefs.filter(ref => ref.expiresAt > t);
+  }
+  if (state.meetIdempotency.length > 0) {
+    state.meetIdempotency = state.meetIdempotency.filter(e => e.expiresAt > t);
   }
   // 3. 关系邀请过期（72 小时）
   for (const rel of state.relationships) {

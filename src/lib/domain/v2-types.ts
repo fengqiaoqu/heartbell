@@ -88,15 +88,19 @@ export interface V2User {
 export type TraitCategory = "穿着" | "配饰" | "手持物" | "当前状态" | "其他";
 export interface Trait { category: TraitCategory; value: string }
 
+// v2.8（M03）：雷达归属于具体活动与显式 sessionId，不能再通过 expiresAt 减 10 分钟推算轮次。
 export interface RadarStateV2 {
   active: boolean;
   traits: Trait[];
   zone: string; // 演示街区标识，不是真实定位
   startedAt: number | null;
   expiresAt: number | null;
+  sessionId: string | null;     // 当前雷达轮次 ID
+  eventId: string | null;       // 来自服务端成员身份，客户端不能指定
+  discoveryNote: string;        // 本轮相遇留言（≤60 字，默认空，不复制长期 bio）
 }
 
-export type BellStatusV2 = "pending" | "accepted" | "dismissed" | "expired";
+export type BellStatusV2 = "pending" | "accepted" | "dismissed" | "expired" | "superseded";
 export interface BellV2 {
   id: string;
   from: string;
@@ -104,6 +108,18 @@ export interface BellV2 {
   message: string;
   status: BellStatusV2;
   createdAt: number;
+  // v2.8（M03）：定向铃声绑定活动、双方雷达轮次与截止；快照为发送时双方自愿公开的本轮特征。
+  eventId: string | null;
+  fromSessionId: string | null;
+  toSessionId: string | null;
+  expiresAt: number | null;     // min(创建后10分钟, 双方雷达截止, 活动截止)
+  fromTraits: Trait[];         // 发送方本轮公开特征（供接收者区分多条来铃）
+  fromNote: string;            // 发送方本轮相遇留言
+  toTraits: Trait[];           // 接收方本轮公开特征（供发送者核对“摇的是谁”）
+  toNote: string;
+  toAlias: string;             // 发送者视角下目标的匿名别名
+  fromAlias: string;           // 接收者视角下发送者的匿名别名
+  connectionId: string | null; // accepted/superseded 关联的连接
 }
 
 export interface ConnectionV2 {

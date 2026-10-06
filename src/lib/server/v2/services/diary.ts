@@ -187,6 +187,11 @@ export function addDiaryVersion(state: V2State, viewer: string, input: Record<st
   if (prev.visibility === "draft" && prev.author !== viewer) {
     throw forbidden("这是对方的私人草稿，仅本人可见和修改。");
   }
+  // v2.8 复测修复（N03）：当前版本已撤回时，非作者不可续写 —— 此前 B 持原 ID 仍能
+  // 对 A 已撤回的日记生成共享 v2（撤回只挡住了读取，未挡住改版）。
+  if (prev.status === "withdrawn" && prev.author !== viewer) {
+    throw notFound("日记不存在或当前不可见");
+  }
   // 旧版本保留为历史；当前版本 = 最后一个，旧确认不复用。
   const date = parseDateNotFuture(input.date, now);
   const title = typeof input.title === "string" ? input.title.trim() : "";
@@ -267,10 +272,15 @@ export function withdrawDiary(
 }
 
 // 存证：需要双方确认同一版本；commitment 服务端生成，不接受客户端指定。
+// v2.8 复测修复（N06）：锚定最新的“双方已确认的共享版本” —— 不再盲取 currentVersion，
+// 避免作者最新私人草稿让对方的“为这一版存证”锚到不可见内容。
 export function anchorDiary(state: V2State, viewer: string, diaryId: unknown, now: number): void {
   const doc = findDiary(state, viewer, diaryId);
-  const version = currentVersion(doc);
-  if (version.status !== "confirmed") throw conflict("CONSENT_REQUIRED", "需要双方确认这一版本后才能存证");
+  const shareable = doc.versions.filter(v => v.visibility === "shared" && v.status === "confirmed");
+  const version = shareable[shareable.length - 1];
+  if (!version) {
+    throw conflict("CONSENT_REQUIRED", version ? "需要双方确认这一版本后才能存证" : "需要双方确认一个共享版本后才能存证");
+  }
   const rel = state.relationships.find(r => r.id === doc.relationshipId)!;
   const job = enqueueAnchor(state, "diary", doc.id, version.version, {
     recordType: "diary",
@@ -358,6 +368,9 @@ export function createPromise(
   }
   const rel = activeRelationshipOf(state, viewer);
   if (!rel) throw forbidden("确认关系后才能共同立下承诺");
+  // v2.8 复测修复（N01）：承诺创建补上双方屏蔽校验 —— 此前同条件下发日记被拒、
+  // 发承诺却成功并触发对方待确认提醒，屏蔽无法真正停止互动。
+  assertPairCanInteract(state, rel.members[0], rel.members[1]);
   const content = typeof input.content === "string" ? input.content.trim() : "";
   const criteria = typeof input.criteria === "string" ? input.criteria.trim() : "";
   if (content.length < 4 || content.length > 80) throw badRequest("承诺内容 4–80 字");

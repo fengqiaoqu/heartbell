@@ -1,6 +1,6 @@
 {
   "name": "heartbell",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,7 +14,9 @@
     "verify:v25": "node _qa/verify-v25.mjs",
     "verify:v26": "node _qa/verify-safety.mjs",
     "verify:v27": "node _qa/verify-v27.mjs",
-    "verify:safety": "node _qa/verify-safety.mjs"
+    "verify:safety": "node _qa/verify-safety.mjs",
+    "verify:meet": "node scripts/verify-meet-multi.mjs",
+    "verify:v28": "node _qa/verify-v28.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",

@@ -67,6 +67,9 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
   const [draft, setDraft] = useState<ProfileDraft | null>(null);
   const [interestInput, setInterestInput] = useState("");
   const [avatarError, setAvatarError] = useState("");
+  const [grantOpen, setGrantOpen] = useState(false); // v2.8：按对象发授权
+  const [grantConn, setGrantConn] = useState<string>("");
+  const [grantScope, setGrantScope] = useState<"profile_contact" | "trust_summary">("profile_contact");
   // 仅在打开编辑时取一次当前资料做草稿；轮询刷新 view 不再重置草稿（v2.2 修复）。
   useEffect(() => {
     if (editOpen && view && draft === null) setDraft(emptyDraft(view));
@@ -154,7 +157,7 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
       <p className="muted">履约分是 0–100 的参考值：不能充值、消费或换礼物；投入或领取多少点数不影响履约分。</p>
 
       <h3 style={{ marginTop: 16 }}>我发出的授权</h3>
-      {me.grantsIssued.length === 0 && <p className="muted">还没有向任何人授权。授权按范围（联系方式 / 履约摘要）分别授予，默认 72 小时有效，可随时撤销。</p>}
+      {me.grantsIssued.length === 0 && <p className="muted">还没有向任何人授权。授权按对象和范围（联系方式 / 履约摘要）分别授予，默认 72 小时有效，可随时撤销。</p>}
       <div className="grant-list">
         {me.grantsIssued.map(g => (
           <div className={`grant-item ${g.active ? "" : "expired"}`} key={g.id}>
@@ -164,10 +167,8 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <Button className="secondary small" disabled={busy} onClick={() => act("share-grants", { scope: "trust_summary" })}>授权查看我的履约摘要</Button>
-        <Button className="secondary small" disabled={busy} onClick={() => act("share-grants", { scope: "profile_contact" })}>授权联系方式</Button>
-      </div>
+      {/* v2.8（MD-11）：抽屉授权入口必须选择接收对象 —— 单独取第一个连接不再被后端接受。 */}
+      <Button className="secondary small" disabled={busy} onClick={() => setGrantOpen(true)}>发起新授权</Button>
 
       <h3 style={{ marginTop: 16 }}>钱包</h3>
       <p className="muted">钱包仅用于真实存证签名（当前 preview 模式无需钱包，存证不会报“需要钱包”的错误）。钱包断开只影响签名，不影响已保存日记。</p>
@@ -190,7 +191,38 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
       </details>
     </Modal>
 
-    {editOpen && draft && <Modal title="编辑个人资料" onClose={closeEdit}>      <label className="field-label" htmlFor="pf-nickname">称呼</label>
+    {/* v2.8（MD-11）：按对象发授权 —— 选择开放连接与范围；只有一个连接时预选但仍显示接收对象。 */}
+    {grantOpen && view && <Modal title="发起新授权" onClose={() => setGrantOpen(false)}>
+      {(() => {
+        const openConns = view.know.connections.filter(c => !c.closed);
+        if (!openConns.length) return <>
+          <p className="muted">还没有已回响的连接。先在「相遇」摇铃并获得回响，才能向对方授权。</p>
+          <Button className="ghost" onClick={() => setGrantOpen(false)}>知道了</Button>
+        </>;
+        const selected = openConns.find(c => c.id === grantConn) ?? openConns[0];
+        return <>
+          <label className="field-label">接收对象（已回响的连接）</label>
+          <div className="choice-list">
+            {openConns.map(c => (
+              <button key={c.id} className={selected.id === c.id ? "chosen" : ""}
+                onClick={() => setGrantConn(c.id)}>{c.profile?.nickname ?? "匿名连接"}</button>
+            ))}
+          </div>
+          <label className="field-label">授权范围</label>
+          <div className="choice-list">
+            <button className={grantScope === "profile_contact" ? "chosen" : ""} onClick={() => setGrantScope("profile_contact")}>查看我的联系方式</button>
+            <button className={grantScope === "trust_summary" ? "chosen" : ""} onClick={() => setGrantScope("trust_summary")}>查看我的履约摘要</button>
+          </div>
+          <p className="muted">授权有效期 72 小时，可随时撤销；重复授权同一对象同一范围会复用现有授权，不会悄悄延长。</p>
+          <Button disabled={busy} onClick={async () => {
+            if (await act("share-grants", { scope: grantScope, connectionId: selected.id })) setGrantOpen(false);
+          }}>确认授权给 {selected.profile?.nickname ?? "对方"}</Button>
+        </>;
+      })()}
+    </Modal>}
+
+    {editOpen && draft && <Modal title="编辑个人资料" onClose={closeEdit}>
+      <label className="field-label" htmlFor="pf-nickname">称呼</label>
       <input id="pf-nickname" maxLength={16} value={draft.nickname} onChange={e => setDraft({ ...draft, nickname: e.target.value })} />
 
       <label className="field-label">头像（6 个官方头像，或自由上传）</label>

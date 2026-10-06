@@ -13,9 +13,9 @@ export async function fetchState(viewer: string): Promise<V2StateView> {
   return json.data as V2StateView;
 }
 
-export async function postV2<T = { ok: boolean }>(path: string, body: Record<string, unknown>): Promise<T> {
+export async function postV2<T = { ok: boolean }>(path: string, body: Record<string, unknown>, extraHeaders?: Record<string, string>): Promise<T> {
   const response = await fetch(`/api/v2/${path}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json", ...(extraHeaders ?? {}) },
     body: JSON.stringify({ viewer: body.viewer, ...body }),
   });
   const json = await response.json();

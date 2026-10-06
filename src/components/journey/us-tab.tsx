@@ -324,7 +324,11 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence, readOnly = fa
     </div>
     <div className="status-line">
       <Chip tone={version.status === "confirmed" ? "success" : "warning"}>业务：{version.status === "confirmed" ? "双方已确认" : version.status === "awaiting" ? "等待确认" : version.status === "returned" ? "已退回" : version.status === "withdrawn" ? "已撤回" : "私人草稿"}</Chip>
-      {detail.anchor && <Chip tone={anchorChip.tone}>存证：{anchorChip.label}</Chip>}
+      {/* v2.8 复测修复（N06）：存证凭证明示对应版本；当前版本与凭证版本分开判断。 */}
+      {detail.anchor && detail.anchoredVersion === version.version
+        && <Chip tone={anchorChip.tone}>存证：{anchorChip.label}（版本 {detail.anchoredVersion}）</Chip>}
+      {detail.anchor && detail.anchoredVersion !== version.version
+        && <Chip tone="outline">存证：{anchorChip.label}（对应版本 {detail.anchoredVersion}，非当前版）</Chip>}
       <Chip tone="outline">来源：应用内记录</Chip>
     </div>
     {readOnly && <p className="muted">这段关系已结束：记录只读，仅双方确认过的版本保留在归档中。</p>}
@@ -357,24 +361,27 @@ function DiaryDetail({ open, onClose, user, busy, act, onEvidence, readOnly = fa
       <label className="field-label" htmlFor="edit-body">修改正文</label>
       <textarea id="edit-body" maxLength={3000} rows={4} value={body} onChange={e => setBody(e.target.value)} />
       <Button disabled={busy || !title.trim() || !body.trim()} onClick={async () => {
-        if (await act("diaries/version", { diaryId: detail.id, expectedVersion: detail.versions.length, date: version.date, title, body, attachmentIds: version.attachments.map(a => a.id), visibility: "shared" })) {
+        // v2.8 复测修复（N07）：expectedVersion 使用实际版本号 —— 有私人历史时可见版本数 ≠ 实际版本号，
+        // 此前以数组长度代替导致持续 409、对方无法修改。
+        if (await act("diaries/version", { diaryId: detail.id, expectedVersion: version.version, date: version.date, title, body, attachmentIds: version.attachments.map(a => a.id), visibility: "shared" })) {
           setEditing(false); await load(detail.id);
         }
       }}>生成新版本并重新确认</Button>
       <Button className="ghost" onClick={() => setEditing(false)}>取消</Button>
     </> : <Button className="secondary" onClick={() => { setEditing(true); setTitle(version.title); setBody(version.body); }}>修改内容（生成新版本）</Button>)}
-    {!readOnly && version.status !== "confirmed" && !detail.anchor && <>
+    {!readOnly && version.status !== "confirmed" && (!detail.anchor || detail.anchoredVersion !== version.version) && <>
       <Button disabled title="需要双方确认这一版本后才能存证">为这一版生成存证</Button>
       <p className="muted center">需要双方确认这一版本后才能生成存证；当前状态：{version.status === "awaiting" ? (myConfirmed ? "等待 TA 确认" : "等待你确认") : version.status === "draft" ? "私人草稿" : "已退回/撤回"}。</p>
     </>}
-    {!readOnly && version.status === "confirmed" && !detail.anchor && <>
-      {/* v2.5（反馈 5）：生成存证成功后立即重新加载详情，弹层内自动变为「查看证据」，无需关闭重开。 */}
+    {/* v2.8 复测修复（N06）：按“当前版本是否已有存证”判断入口 —— v1 存证后改成 v2 并确认，
+        此前误显示 v1 凭证并隐藏新版存证按钮。 */}
+    {!readOnly && version.status === "confirmed" && (!detail.anchor || detail.anchoredVersion !== version.version) && <>
       <Button disabled={busy} onClick={async () => {
         if (await act("diaries/anchor", { diaryId: detail.id })) await load(detail.id);
       }}>为这一版生成存证</Button>
       <p className="muted center">preview 模式无需连接钱包：生成的是本地承诺指纹（可导出核验），不会发起链上交易。</p>
     </>}
-    {detail.anchor && <Button className="ghost" onClick={() => onEvidence({ anchor: detail.anchor, business: "双方已确认的日记版本", recordId: detail.id })}>查看证据</Button>}
+    {detail.anchor && <Button className="ghost" onClick={() => onEvidence({ anchor: detail.anchor, business: `双方已确认的日记版本（版本 ${detail.anchoredVersion}）`, recordId: detail.id })}>查看证据</Button>}
     <p className="muted">这一版内容会留下可核验的指纹；原文与附件保存在应用里，哈希无法恢复丢失的内容，请及时导出备份。</p>
   </Modal>;
 }

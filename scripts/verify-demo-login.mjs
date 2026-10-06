@@ -86,14 +86,14 @@ r = await req("GET", "/api/v2/export?recordId=whatever&viewer=a");
 check("L07c 未登录证据导出被拒（401）", r.status === 401);
 r = await req("GET", "/api/demo?viewer=a");
 check("L08 旧 /api/demo 用户接口同样拒绝（401，无免登录通道）", r.status === 401, r.json);
-r = await req("GET", "/api/demo-auth/session?viewer=d");
-check("无效 viewer（d）返回 400", r.status === 400);
+r = await req("GET", "/api/demo-auth/session?viewer=g");
+check("无效 viewer（g，超出 A–F 演示注册表）返回 400", r.status === 400);
 
 // ---------- L06：未登录页面门禁 ----------
 const demoPage = await fetch(`${base}/demo/a?tab=us`, { redirect: "manual" });
 check("L06 未登录打开 /demo/a 重定向到对应登录页（携带栏目）", [302, 307].includes(demoPage.status) && (demoPage.headers.get("location") ?? "").startsWith("/login?account=a"), demoPage.headers.get("location"));
-const demo404 = await fetch(`${base}/demo/d`);
-check("非法角色 /demo/d 仍 404（c 为 v2.6 安全验证第三人，属合法演示账号）", demo404.status === 404);
+const demo404 = await fetch(`${base}/demo/g`);
+check("非法角色 /demo/g 仍 404（A–F 为合法演示账号，g 超出注册表）", demo404.status === 404);
 
 // ---------- L12：伪造/已撤销会话 ----------
 r = await req("GET", "/api/v2/state?viewer=a", { cookie: "hb_demo_a=" + "f".repeat(64) });

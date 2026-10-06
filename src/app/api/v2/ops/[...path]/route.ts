@@ -16,6 +16,7 @@ import {
 import {
   opsAssignReport, opsAppealDecide, opsDecideReport, opsReportDetail, opsReportsList, opsRestrictTarget,
 } from "../../../../../lib/server/v2/services/safety";
+import * as events from "../../../../../lib/server/v2/services/events";
 import { opsPrivacyStats } from "../../../../../lib/server/v2/services/privacy";
 import type { AdminPermission, AdminPrincipal } from "../../../../../lib/domain/admin-types";
 
@@ -88,6 +89,8 @@ export async function GET(request: Request, context: { params: Promise<{ path: s
       "GET /safety/reports/:id": guarded("safety.read", ({ me, params }) =>
         opsReportDetail(getV2State(), me.accountId, params[2], me.permissions.includes("safety.restrict"))),
       "GET /safety/stats": guarded("safety.read", ({ me }) => opsPrivacyStats(getV2State(), me)),
+      // ---------- v2.8（M03 MD-14）：活动管理 ----------
+      "GET /events": guarded("events.read", () => ({ items: events.opsListEvents(getV2State()) })),
     };
     // 路径参数匹配：claims/:id、safety/reports/:id
     if (!routes[key] && path?.length === 2 && path[0] === "claims") {
@@ -194,6 +197,27 @@ export async function POST(request: Request, context: { params: Promise<{ path: 
           maintenanceNotice: String(b.maintenanceNotice ?? ""),
           reason: String(b.reason ?? ""),
         })),
+      // ---------- v2.8（M03 MD-14）：活动管理（审计不记明文活动码/token） ----------
+      "POST /events": guarded("events.manage", ({ me, body: b }) => {
+        const { now } = sweepAndNow();
+        const result = events.opsCreateEvent(getV2State(), {
+          name: b.name, capacity: b.capacity, startsAt: b.startsAt, endsAt: b.endsAt,
+        }, now);
+        audit({ actorId: me.accountId, actorName: me.displayName, action: "events.create", targetType: "event", targetId: result.event.id, detail: `创建活动「${result.event.name}」（明文码仅本次返回，不入审计）` });
+        return result; // { event, code } —— code 仅此一次返回
+      }),
+      "POST /events/:id/status": guarded("events.manage", ({ me, params, body: b }) => {
+        const { now } = sweepAndNow();
+        const next = b.status === "paused" ? "paused" : b.status === "closed" ? "closed" : "open";
+        const result = events.opsSetEventStatus(getV2State(), params[1], next, b.expectedRevision, now);
+        audit({ actorId: me.accountId, actorName: me.displayName, action: `events.status.${next}`, targetType: "event", targetId: params[1], detail: `活动状态改为 ${next}` });
+        return result;
+      }),
+      "POST /events/:id/rotate-code": guarded("events.manage", ({ me, params, body: b }) => {
+        const result = events.opsRotateEventCode(getV2State(), params[1], b.expectedRevision);
+        audit({ actorId: me.accountId, actorName: me.displayName, action: "events.rotate_code", targetType: "event", targetId: params[1], detail: "更换活动码（旧码立即失效，不影响现有成员；明文码仅本次返回）" });
+        return result; // { event, code } —— code 仅此一次返回
+      }),
     };
     // 三段路径的参数化匹配
     const handler = routes[key]
@@ -208,6 +232,9 @@ export async function POST(request: Request, context: { params: Promise<{ path: 
         : path?.length === 4 && path[0] === "safety" && path[1] === "reports" && path[3] === "assign" ? routes["POST /safety/reports/:id/assign"]
         : path?.length === 4 && path[0] === "safety" && path[1] === "reports" && path[3] === "decisions" ? routes["POST /safety/reports/:id/decisions"]
         : path?.length === 4 && path[0] === "safety" && path[1] === "reports" && path[3] === "appeal-decision" ? routes["POST /safety/reports/:id/appeal-decision"]
+        // v2.8：events/:id/{status|rotate-code}（三段路径）
+        : path?.length === 3 && path[0] === "events" && path[2] === "status" ? routes["POST /events/:id/status"]
+        : path?.length === 3 && path[0] === "events" && path[2] === "rotate-code" ? routes["POST /events/:id/rotate-code"]
         : undefined);
     if (!handler) throw new ApiError(404, "NOT_FOUND", `未知接口：${key}`);
     return ok(handler(ctx));

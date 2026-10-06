@@ -14,6 +14,7 @@ import { consumeReservation, planMembers, refundPrincipals, releaseReservation, 
 import { enqueueAnchor } from "./anchor";
 import { activeRelationshipOf } from "../../../repositories/demo-repo";
 import type { ClaimStatus, CommitmentPlan, GoalClaim, RewardChoice } from "../../../domain/v2-types";
+import { businessDateKey } from "../../../domain/v2-types";
 
 const activePlanStatuses = ["awaiting_partner", "active", "claim_review", "approved", "redeemable", "forfeit_pending", "exception_review"];
 
@@ -171,6 +172,12 @@ export function submitClaim(state: V2State, viewer: string, input: Record<string
   const occurredAt = typeof input.targetOccurredAt === "number" ? input.targetOccurredAt : Date.parse(String(input.targetOccurredAt));
   if (!Number.isFinite(occurredAt)) throw badRequest("请选择目标发生时间");
   if (!plan.activatedAt || !plan.coolingUntil || !plan.expiresAt) throw conflict("PLAN_STATE", "计划尚未激活");
+  // v2.8 复测修复（N08）：核验目标采用“业务日期”语义 —— 目标发生日期不能晚于业务今天。
+  // 此前页面把当天日期转成 12:00Z（北京时间 20:00），服务端只校验计划区间，
+  // 未来 13+ 小时的“发生时刻”也能提交并通过审核。
+  if (businessDateKey(occurredAt) > businessDateKey(now)) {
+    throw badRequest("目标发生日期不能晚于今天");
+  }
   if (!targetWindowValid(plan, occurredAt)) throw badRequest("目标必须发生在冷静期结束后、计划到期前（激活前已达成不计）");
   if (plan.graceUntil !== null && now > plan.graceUntil) throw badRequest("已超过到期宽限期，不能再提交申请");
   const evidenceNote = typeof input.evidenceNote === "string" && input.evidenceNote.trim() ? input.evidenceNote.trim().slice(0, 200) : null;

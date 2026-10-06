@@ -5,7 +5,9 @@
 import type { V2State } from "../../../repositories/demo-repo";
 import { activeRelationshipOf, pushPrivacyAudit } from "../../../repositories/demo-repo";
 import { badRequest, conflict, forbidden, notFound, unauthenticated } from "../errors";
-import { revokeGrantsBetween, visibleDiaryVersions } from "../privacy-policy";
+import { now as v2now } from "../registry";
+import { notificationVisible, revokeGrantsBetween, visibleDiaryVersions } from "../privacy-policy";
+import { activeMembershipOf } from "./events";
 import { verifyDemoPassword, newRestrictedCredential, revokeAllSessionsForUser, hashCredential } from "../../demo-auth";
 import { safetyStats } from "./safety";
 import {
@@ -15,6 +17,7 @@ import {
 import type { AdminPrincipal } from "../../../domain/admin-types";
 
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 const EXPORT_DOWNLOAD_HOURS = 24;
 
 function rid(prefix: string): string {
@@ -128,7 +131,10 @@ function buildExportPackage(state: V2State, viewer: string, scopes: DataExportSc
     packageJson.ledger = state.ledger.filter(e => e.from === `user:${viewer}` || e.to === `user:${viewer}`);
   }
   if (scopes.includes("notifications")) {
-    packageJson.notifications = state.notifications.filter(n => n.userId === viewer);
+    // v2.8 复测修复（N02）：通知导出复用与站内提醒同一可见性策略 ——
+    // 屏蔽/关系结束后不再带出与对方未决内容相关的提醒（此前连隐藏日记的标题也被带出）。
+    packageJson.notifications = state.notifications.filter(n =>
+      n.userId === viewer && notificationVisible(state, viewer, n));
   }
   packageJson.notice = "本数据包仅包含你本人有权访问的数据；不含他人私人草稿、运营内部意见或存证证据包 salt。";
   return packageJson;
@@ -140,11 +146,14 @@ export function createExport(state: V2State, viewer: string, scopesInput: unknow
     : [];
   if (scopes.length === 0) throw badRequest("请至少选择一项导出范围");
   // 演示级：任务即时生成（queued→processing→ready 状态机保留，P1 接异步 worker）。
+  // v2.8 复测修复（N02/N05）：
+  // - 有效期按小时计算（此前误用 DAY，24 小时变成 24 天）；
+  // - 不再冻结数据包快照 —— 下载时按“当时”的可见性重新装配，撤权后旧任务拿不到已隐藏内容。
   const job: DataExportJob = {
     id: rid("export"), ownerId: viewer, scopes,
     status: "ready", createdAt: now, readyAt: now,
-    expiresAt: now + EXPORT_DOWNLOAD_HOURS * DAY,
-    attempts: 1, packageJson: JSON.stringify(buildExportPackage(state, viewer, scopes, now)),
+    expiresAt: now + EXPORT_DOWNLOAD_HOURS * HOUR,
+    attempts: 1, packageJson: null,
     downloads: 0,
   };
   state.dataExports.push(job);
@@ -162,7 +171,8 @@ export function exportDetail(state: V2State, viewer: string, jobId: unknown) {
   if (typeof jobId !== "string") throw badRequest("无效的任务 ID");
   const job = state.dataExports.find(j => j.id === jobId && j.ownerId === viewer);
   if (!job) throw notFound("任务不存在");
-  if (job.status === "ready" && job.expiresAt !== null && job.expiresAt <= Date.now()) job.status = "expired";
+  // v2.8 复测修复（N05）：到期检查统一业务时钟（创建用业务 now，检查也用业务 now，不再混用真实时间）。
+  if (job.status === "ready" && job.expiresAt !== null && job.expiresAt <= v2now(state)) job.status = "expired";
   return {
     id: job.id, status: job.status, scopes: job.scopes,
     createdAt: job.createdAt, expiresAt: job.expiresAt, downloads: job.downloads,
@@ -171,12 +181,15 @@ export function exportDetail(state: V2State, viewer: string, jobId: unknown) {
 }
 
 // 下载时再次校验归属与有效期（T43/T44：创建时和下载时均鉴权）。
+// v2.8 复测修复（N02）：下载时重新按当前可见性装配数据包 —— 屏蔽/撤权/退出后，
+// 创建时可见、下载时已不可见的内容不再随旧任务带出。
 export function downloadExport(state: V2State, viewer: string, jobId: unknown) {
   if (typeof jobId !== "string") throw badRequest("无效的任务 ID");
   const job = state.dataExports.find(j => j.id === jobId && j.ownerId === viewer);
   if (!job) throw notFound("任务不存在");
   if (job.status !== "ready") throw conflict("EXPORT_STATE", "该任务当前不可下载");
-  if (job.expiresAt !== null && job.expiresAt <= Date.now()) {
+  const now = v2now(state);
+  if (job.expiresAt !== null && job.expiresAt <= now) {
     job.status = "expired";
     throw conflict("EXPORT_EXPIRED", "下载有效期（24 小时）已过，请重新创建导出任务。");
   }
@@ -185,7 +198,7 @@ export function downloadExport(state: V2State, viewer: string, jobId: unknown) {
     actorId: viewer, actorRole: "user", action: "privacy.export.download",
     targetType: "data_export", targetId: job.id,
   });
-  return JSON.parse(job.packageJson!);
+  return buildExportPackage(state, viewer, job.scopes, now);
 }
 
 // ---------- 我的数据：注销（SAF-08 / 4.3） ----------
@@ -219,6 +232,13 @@ export function requestDeletion(
   // 2) 停止发现与新的互动入口。
   const radar = state.radar.get(viewer);
   if (radar?.active) { radar.active = false; radar.expiresAt = null; }
+  // v2.8（M03 MD-13）：注销联动 —— 结束活动成员身份、失效候选引用、终结相关待处理铃声。
+  const membership = activeMembershipOf(state, viewer);
+  if (membership && membership.leftAt === null) membership.leftAt = now;
+  state.candidateRefs = state.candidateRefs.filter(ref => ref.actorId !== viewer && ref.targetId !== viewer);
+  for (const bell of state.bells) {
+    if (bell.status === "pending" && (bell.from === viewer || bell.to === viewer)) bell.status = "expired";
+  }
   // 3) 撤销双向全部授权。
   let revoked = 0;
   for (const other of [...state.users.keys()]) {

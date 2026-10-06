@@ -59,23 +59,26 @@ export function revokeGrantsBetween(state: V2State, x: string, y: string, now: n
 // 返回调用者可见的版本：
 // - 作者始终可见自己的版本（含私人草稿）；
 // - 从未分享的草稿只对作者可见；
-// - 共享版本：待确认/已确认时对方可见；被屏蔽/关系结束后，仅双方已确认的版本保留为只读归档；
+// - 共享版本：待确认/已确认时对方可见；被屏蔽或关系结束后，仅双方已确认的版本保留为只读归档；
 // - 已撤回（withdrawn）的共享版本只对作者可见。
+// v2.8 复测修复（N04）：ended 直接作为读取条件，覆盖 returned 等所有中间状态 ——
+// 此前仅靠结束时的状态转换（awaiting→withdrawn）遮挡，漏掉 returned 版本导致退出后仍可读。
 export function visibleDiaryVersions(state: V2State, doc: DiaryDoc, viewer: string): RecordVersion[] {
   const rel = state.relationships.find(r => r.id === doc.relationshipId);
   if (!rel || !rel.members.includes(viewer)) return [];
   const other = rel.members[0] === viewer ? rel.members[1] : rel.members[0];
   const blocked = blockedEitherWay(state, viewer, other);
+  const ended = rel.status === "ended";
   return doc.versions.filter(version => {
     if (version.author === viewer) return true;
     if (version.visibility === "draft") return false;           // 从未分享的私人草稿
     if (version.status === "withdrawn") return false;           // 对方已撤回
-    if (blocked) return version.status === "confirmed";          // 屏蔽/退出后：仅共同确认归档
+    if (blocked || ended) return version.status === "confirmed"; // 屏蔽/退出后：仅共同确认归档
     return true;
   });
 }
 
-// ---------- 通知裁剪：屏蔽后不再透出与对方未决内容相关的旧提醒 ----------
+// ---------- 通知裁剪：屏蔽或关系结束后不再透出与对方未决内容相关的旧提醒 ----------
 
 export function notificationVisible(
   state: V2State, viewer: string,
@@ -88,7 +91,18 @@ export function notificationVisible(
     const rel = state.relationships.find(r => r.id === doc.relationshipId);
     if (rel) {
       const other = rel.members[0] === viewer ? rel.members[1] : rel.members[0];
-      if (blockedEitherWay(state, viewer, other)) return false;
+      // v2.8 复测修复（N02 关联）：屏蔽或关系已结束的待确认提醒不再透出（含归档导出口径）。
+      if (blockedEitherWay(state, viewer, other) || rel.status === "ended") return false;
+    }
+  }
+  if (n.kind === "promise_awaiting" || n.kind === "resolution_awaiting") {
+    const doc = state.promises.find(p => p.id === n.objectId);
+    if (doc) {
+      const rel = state.relationships.find(r => r.id === doc.relationshipId);
+      if (rel) {
+        const other = rel.members[0] === viewer ? rel.members[1] : rel.members[0];
+        if (blockedEitherWay(state, viewer, other) || rel.status === "ended") return false;
+      }
     }
   }
   return true;

@@ -56,22 +56,24 @@ const ownerCookie = (ownerLogin.setCookie ?? "").split(";")[0];
 const reviewerLogin = await ops("POST", "login", { username: "reviewer", password: "heartbell-reviewer" });
 const reviewerCookie = (reviewerLogin.setCookie ?? "").split(";")[0];
 
-// ---------- 基础链路 ----------
+// ---------- 基础链路（v2.8：入场活动 → 雷达 → candidateRef 定向摇铃 → connectionId 邀请） ----------
 await post("a", "declare-adult", {});
 await post("b", "declare-adult", {});
+for (const v of ["a", "b"]) await post(v, "meet/events/join", { code: "HEARTS26" });
 for (const v of ["a", "b"]) {
   await post(v, "radar", { active: true, traits: [{ category: "穿着", value: "黑色外套" }, { category: "手持物", value: "拿着咖啡" }] });
 }
-await post("a", "ring", { message: "想认识你。" });
-const bell = (await state("b")).meet.bells.find(x => x.status === "pending");
+const candB = (await state("a")).meet.candidates[0];
+const ringRes = await post("a", "ring", { candidateRef: candB.candidateRef, message: "想认识你。", idempotencyKey: "qa-safety-bell-1" });
+const bell = (await state("b")).meet.bells.find(x => x.status === "pending" && x.direction === "incoming");
 await post("b", "respond", { bellId: bell.id, status: "accepted" });
 const connId = (await state("a")).know.connections[0].id;
-const propose = await post("a", "relationships/propose", {});
+const propose = await post("a", "relationships/propose", { connectionId: connId });
 const relId = propose.json.data.id;
 await post("b", "relationships/accept", { relationshipId: relId });
 
 // ---------- 切片 1：授权撤销闭环（T01–T09） ----------
-await post("b", "share-grants", { scope: "profile_contact" }); // b 授权 a 查看联系方式
+await post("b", "share-grants", { scope: "profile_contact", connectionId: connId }); // b 授权 a 查看联系方式
 let viewA = await state("a");
 check("T01a 授权后受众可见联系方式", viewA.know.connections[0].contacts?.length > 0, viewA.know.connections[0].contacts);
 const cRead = await get("c", "trust/summary?subjectId=b");
@@ -80,7 +82,7 @@ const cState = await get("c", "state");
 check("T01c C 只能看到自己的状态（无 A/B 联系方式泄露）", cState.status === 200 && !JSON.stringify(cState.json.data.know).includes("demo-axiang"), cState.json.data?.know?.connections?.length);
 
 // T02/T03: 撤销后所有入口立即失效；只撤联系方式不影响摘要
-await post("b", "share-grants", { scope: "trust_summary" });
+await post("b", "share-grants", { scope: "trust_summary", connectionId: connId });
 const grantList = await get("b", "privacy/grants");
 const contactGrant = grantList.json.data.find(g => g.scopeLabel === "交换联系方式" && g.status === "active");
 await post("b", "share-grants/revoke", { grantId: contactGrant.id });
@@ -106,13 +108,13 @@ const fakeRevoke = await post("a", "share-grants/revoke", { grantId: contactGran
 check("T06 用他人 grantId 撤销被拒（404，不区分存在性）", fakeRevoke.status === 404, fakeRevoke.json);
 
 // T07: 授权到期后拒绝（推进 73h 虚拟时间）
-await post("b", "share-grants", { scope: "trust_summary" });
+await post("b", "share-grants", { scope: "trust_summary", connectionId: connId });
 await post("a", "admin/advance-time", { ms: 73 * 3_600_000 });
 const trustExpired = await get("a", "trust/summary?subjectId=b");
 check("T07 授权到期后直接访问被拒（无需刷新页面）", trustExpired.status === 403, trustExpired.json);
 
 // T09: 结束绑定后旧授权失效（连接保持打开：结束绑定不关闭连接）
-await post("b", "share-grants", { scope: "profile_contact" });
+await post("b", "share-grants", { scope: "profile_contact", connectionId: connId });
 await post("a", "relationships/end", { relationshipId: relId, reason: "验证撤权级联" });
 const viewAfterEnd = await state("a");
 check("T09 结束绑定后旧授权不再返回联系方式", viewAfterEnd.know.connections.every(c => c.contacts === null), viewAfterEnd.know.connections.map(c => c.contacts));
@@ -120,7 +122,7 @@ const trustAfterEnd = await get("a", "trust/summary?subjectId=b");
 check("T09b 结束绑定后直接摘要接口拒绝", trustAfterEnd.status === 403, trustAfterEnd.json);
 
 // ---------- 切片 2：日记版本裁剪（T10–T14） ----------
-const relId3 = (await post("a", "relationships/propose", {})).json.data.id;
+const relId3 = (await post("a", "relationships/propose", { connectionId: connId })).json.data.id;
 await post("b", "relationships/accept", { relationshipId: relId3 });
 const today = async () => new Date((await state("a")).modes.virtualNow).toISOString().slice(0, 10);
 // 共享旧版（b 确认，先生成存证）+ 私人新版
@@ -172,9 +174,9 @@ for (const v of ["a", "b"]) {
   await post(v, "radar", { active: true, traits: [{ category: "穿着", value: "浅色衬衫" }, { category: "手持物", value: "一本书" }] });
 }
 viewB = await state("b");
-check("T15a 屏蔽后雷达候选互相不可见", viewB.meet.nearby.length === 0, viewB.meet.nearby);
-const ringBlocked = await post("a", "ring", { message: "想认识你。" });
-check("T15b 屏蔽后摇铃被拒（候选为空）", ringBlocked.status === 409, ringBlocked.json);
+check("T15a 屏蔽后雷达候选互相不可见", viewB.meet.candidates.length === 0, viewB.meet.candidates);
+const ringBlocked = await post("a", "ring", { candidateRef: "cr-fake-ref-blocked-test", message: "想认识你。", idempotencyKey: "qa-safety-ring-blocked" });
+check("T15b 屏蔽后无有效候选引用可摇铃（统一 404，不泄露对方状态）", ringBlocked.status === 404, ringBlocked.json);
 // T58: 旧提醒不再透出
 viewB = await state("b");
 check("T58 屏蔽后旧日记提醒不再透出给对方", !viewB.notifications.some(n => n.objectId === awaitingId), viewB.notifications.map(n => n.objectId));
@@ -187,7 +189,7 @@ check("T20a 解除屏蔽成功（提示不恢复旧授权）", unblock.status ==
 viewB = await state("b");
 check("T20b 解除屏蔽后旧授权不恢复（联系方式仍不可见）", viewB.know.connections.every(c => c.contacts === null));
 viewB = await state("b");
-check("T20c 解除屏蔽不恢复连接（级联关闭的连接保持关闭，雷达候选仍为空）", viewB.meet.nearby.length === 0, viewB.meet.nearby);
+check("T20c 解除屏蔽不恢复连接（级联关闭的连接保持关闭，雷达候选仍为空）", viewB.meet.candidates.length === 0, viewB.meet.candidates);
 
 // T23: 伪造/他人 targetRef
 const badRef = await post("b", "safety/blocks", { targetRef: "tr-fake123" });
@@ -283,7 +285,8 @@ ro = await ops("GET", "safety/reports?status=submitted", undefined, ownerCookie)
 const bReport = ro.json.data.find(x => x.reason === "fraud");
 const restrictRes = await ops("POST", "safety/restrictions", { reportId: bReport.id, scope: "ring", days: 1 }, ownerCookie);
 check("T40a 主管批准限时摇铃限制", restrictRes.status === 200, restrictRes.json);
-const ringRestricted = await post("a", "ring", { message: "想认识你。" });
+const candForRestrict = (await state("a")).meet.candidates[0];
+const ringRestricted = await post("a", "ring", { candidateRef: candForRestrict?.candidateRef ?? "cr-none", message: "想认识你。", idempotencyKey: "qa-safety-ring-restricted" });
 check("T40b 限制期间新铃声被拒（中性错误，救济不受影响）", ringRestricted.status === 403 && (ringRestricted.json?.error?.message ?? "").includes("当前无法继续此操作"), ringRestricted.json);
 const reviewerRestrict = await ops("POST", "safety/restrictions", { reportId: bReport.id, scope: "ring", days: 1 }, reviewerCookie);
 check("T40c reviewer 无 safety.restrict 权限被拒（403）", reviewerRestrict.status === 403, reviewerRestrict.json);

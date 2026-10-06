@@ -5,10 +5,14 @@
 import { useEffect, useState } from "react";
 import { HeartbellLogo } from "../ui";
 
+// v2.8（M03）：A–F 六个独立演示账号（活动甲：A/B/C/D；活动乙：E/F）。
 const accounts = [
   { id: "a", label: "A" },
   { id: "b", label: "B" },
   { id: "c", label: "C" },
+  { id: "d", label: "D" },
+  { id: "e", label: "E" },
+  { id: "f", label: "F" },
 ] as const;
 
 export function DemoLoginForm() {
@@ -23,11 +27,11 @@ export function DemoLoginForm() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const acc = params.get("account");
-    if (acc === "a" || acc === "b") setAccount(acc);
+    if (/^[a-f]$/.test(acc ?? "")) setAccount(acc!);
     const t = params.get("tab");
     if (t && ["meet", "know", "us", "future"].includes(t)) setTab(t);
     // 指定账号已有有效会话：显示“继续进入/退出”，不自动跳转，也不受另一账号会话影响。
-    if (acc === "a" || acc === "b") {
+    if (/^[a-f]$/.test(acc ?? "")) {
       fetch(`/api/demo-auth/session?viewer=${acc}`, { cache: "no-store" })
         .then(r => (r.ok ? r.json() : null))
         .then(json => {
@@ -39,7 +43,7 @@ export function DemoLoginForm() {
 
   async function submit() {
     if (busy) return;
-    if (!account.trim()) { setError("请输入账号（a / b / c）"); return; }
+    if (!account.trim()) { setError("请输入账号（a–f）"); return; }
     if (!password) { setError("请输入密码"); return; }
     setBusy(true); setError("");
     try {
@@ -91,7 +95,7 @@ export function DemoLoginForm() {
     <form onSubmit={e => { e.preventDefault(); void submit(); }}>
       <label className="field-label" htmlFor="login-account">账号</label>
       <input id="login-account" name="username" autoComplete="username" inputMode="text"
-        placeholder="a 或 b" maxLength={32} value={account}
+        placeholder="a – f" maxLength={32} value={account}
         aria-invalid={!!error} onChange={e => { setAccount(e.target.value); setError(""); }} />
       <div className="login-account-hints" aria-hidden="true">
         {accounts.map(x => (

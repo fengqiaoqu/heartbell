@@ -1,6 +1,6 @@
 // V2 演示仓库：内存实现，重启清空（P0 明确标注的本地演示）。
 // 语义对齐计划书 10.1 数据对象；P1 由 Postgres 实现同一接口语义。
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type {
   AnchorJob, BellV2, Benefit, CommitmentPlan, ConnectionV2, DiaryDoc,
   DisputeV2, GoalClaim, LedgerEntry, PromiseDoc, RadarStateV2,
@@ -11,10 +11,15 @@ import type {
   UserBlock, SafetyReport, SafetyTargetRef, AccountRestriction, PrivacyAuditEntry,
   DataExportJob, AccountDeletion,
 } from "../domain/safety-types";
+import type {
+  CandidateReference, EventJoinFailure, EventMembership, EventRoom, MeetIdempotencyRecord,
+} from "../domain/meet-types";
+import { EVENT_CAPACITY_DEFAULT, EVENT_CODE_ALPHABET, EVENT_SEED_LIFETIME_MS } from "../domain/meet-types";
 import { defaultFeatureConfig, defaultSpaceSettings } from "../domain/v2-types";
 import { INVEST_PER_USER, PLAN_TERMS_VERSION, REWARD_POOL_START } from "../domain/plan-rules";
 import { RELATIONSHIP_TERMS_VERSION } from "../domain/relationship";
 import { computeTrust } from "../domain/score";
+import { demoUserSeeds, demoUserIds } from "../domain/demo-users";
 import { demoImageLibrary } from "./demo-images";
 export { demoImageLibrary };
 
@@ -50,9 +55,17 @@ export interface V2State {
   // v2.7：写入幂等缓存（Idempotency-Key → 已创建记录），网络重试不再产生重复日记/承诺
   idempotency: IdempotencyRecord[];
   virtualOffsetMs: number;
+  // v2.8（M03）：活动、成员、候选引用、相遇幂等与入场失败限流
+  events: EventRoom[];
+  eventMemberships: EventMembership[];
+  candidateRefs: CandidateReference[];
+  meetIdempotency: MeetIdempotencyRecord[];
+  eventJoinFailures: EventJoinFailure[];
 }
 
-// v2.7：同 viewer + 同 key 的创建请求返回同一条记录；仅保留最近 200 条防止无限增长。
+// v2.7→v2.8：同 viewer + 同 key 的创建请求返回同一条记录。
+// v2.8 复测修复（旧问题 09）：缓存改为 24 小时时间窗口淘汰 + 硬上限兜底，
+// 其他用户的高频流量不再把未过期的重试保护挤出去。
 export interface IdempotencyRecord {
   viewer: string;
   key: string;
@@ -61,7 +74,8 @@ export interface IdempotencyRecord {
   at: number;
 }
 
-export const IDEMPOTENCY_CACHE_LIMIT = 200;
+export const IDEMPOTENCY_TTL_MS = 24 * 86_400_000;
+export const IDEMPOTENCY_CACHE_LIMIT = 2000; // 硬上限兜底（防内存无限增长）
 
 export function findIdempotentRecord(state: V2State, viewer: string, key: string): IdempotencyRecord | null {
   return state.idempotency.find(e => e.viewer === viewer && e.key === key) ?? null;
@@ -69,12 +83,17 @@ export function findIdempotentRecord(state: V2State, viewer: string, key: string
 
 export function rememberIdempotentRecord(state: V2State, entry: IdempotencyRecord): void {
   state.idempotency.push(entry);
+  // v2.8 复测修复（旧问题 09）：先按 24 小时窗口淘汰，再按硬上限兜底；
+  // 淘汰只影响已过期条目，其他用户的流量不再使未过期的重试保护提前失效。
+  if (state.idempotency.length > IDEMPOTENCY_CACHE_LIMIT) {
+    state.idempotency = state.idempotency.filter(e => entry.at - e.at < IDEMPOTENCY_TTL_MS);
+  }
   if (state.idempotency.length > IDEMPOTENCY_CACHE_LIMIT) {
     state.idempotency = state.idempotency.slice(-IDEMPOTENCY_CACHE_LIMIT);
   }
 }
 
-export const DEMO_USER_IDS = ["a", "b"] as const;
+export const DEMO_USER_IDS = demoUserIds;
 // 演示图片库常量在 demo-images.ts（客户端安全），此处复用。
 export function demoImageSha256(id: string): string {
   return "0x" + createHash("sha256").update(`heartbell-demo-photo:${id}`).digest("hex");
@@ -82,6 +101,21 @@ export function demoImageSha256(id: string): string {
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
+
+// 种子演示活动码（固定值，README 同步列出；动态创建的活动码仅创建/换码时返回一次）。
+export const SEED_EVENT_ALPHA_CODE = "HEARTS26";
+export const SEED_EVENT_BETA_CODE = "BELLTK26";
+
+export function eventCodeHash(code: string): string {
+  return createHash("sha256").update(`heartbell-event-code:${code.toUpperCase()}`).digest("hex");
+}
+
+export function generateEventCode(): string {
+  const bytes = randomBytes(8);
+  let code = "";
+  for (let i = 0; i < 8; i++) code += EVENT_CODE_ALPHABET[bytes[i] % EVENT_CODE_ALPHABET.length];
+  return code;
+}
 
 export function createDemoState(now: number): V2State {
   const state: V2State = {
@@ -94,39 +128,24 @@ export function createDemoState(now: number): V2State {
     privacyAudits: [], dataExports: [], deletions: [],
     idempotency: [],
     virtualOffsetMs: 0,
+    events: [], eventMemberships: [], candidateRefs: [], meetIdempotency: [], eventJoinFailures: [],
   };
-  state.users.set("a", {
-    id: "a", kind: "demo", adultDeclared: false, disabledAt: null,
-    profile: {
-      nickname: "小铃", avatar: "def:coffee", ageWindow: "00后", orientation: "not_say", orientationCustom: null, mbti: "INFP",
-      interests: ["咖啡", "音乐", "散步"], intention: "open",
-      bio: "想认识一个愿意一起慢慢走的人。",
-      contacts: [
-        { id: "c-wechat", label: "微信", value: "demo-xiaoling" },
-        { id: "c-phone", label: "手机号", value: "138****0001（演示）" },
-      ],
-    },
-    verificationLevels: [
-      { label: "钱包控制权已验证", verified: false },
-      { label: "真人/身份核验", verified: false },
-    ],
-  });
-  state.users.set("b", {
-    id: "b", kind: "demo", adultDeclared: false, disabledAt: null,
-    profile: {
-      nickname: "阿响", avatar: "def:cat", ageWindow: "95后", orientation: "men", orientationCustom: null, mbti: "ISFJ",
-      interests: ["猫咪", "音乐", "展览"], intention: "serious",
-      bio: "慢热，但认真。想认真认识一个人。",
-      contacts: [
-        { id: "c-wechat", label: "微信", value: "demo-axiang" },
-        { id: "c-phone", label: "手机号", value: "139****0002（演示）" },
-      ],
-    },
-    verificationLevels: [
-      { label: "钱包控制权已验证", verified: false },
-      { label: "真人/身份核验", verified: false },
-    ],
-  });
+  // v2.8（M03 MD-01）：A–F 统一注册表创建演示用户；资料与凭据分离，凭证仅服务端。
+  for (const id of demoUserIds) {
+    const seed = demoUserSeeds[id];
+    state.users.set(id, {
+      id, kind: "demo", adultDeclared: seed.adultDeclared, disabledAt: null,
+      profile: {
+        nickname: seed.nickname, avatar: seed.avatar, ageWindow: seed.ageWindow,
+        orientation: seed.orientation, orientationCustom: null, mbti: seed.mbti,
+        interests: [...seed.interests], intention: seed.intention, bio: seed.bio,
+        contacts: seed.contacts.map((c, i) => ({ id: `c-${id}-${i}`, label: c.label, value: c.value })),
+      },
+      verificationLevels: id === "a" || id === "b"
+        ? [{ label: "钱包控制权已验证", verified: false }, { label: "真人/身份核验", verified: false }]
+        : [],
+    });
+  }
   // 演示前史：b 的上一段已结束关系（虚构对象，卡片持续标注演示数据）。
   const exId = "fx-ex-of-b";
   state.users.set(exId, {
@@ -149,17 +168,7 @@ export function createDemoState(now: number): V2State {
     spaceSettings: { ...defaultSpaceSettings },
   };
   state.relationships.push(fxRel);
-  // v2.6 安全与隐私：第三个演示用户 C（负面权限测试 —— 始终无权读取 A/B 之间授权的内容）。
-  state.users.set("c", {
-    id: "c", kind: "demo", adultDeclared: true, disabledAt: null,
-    profile: {
-      nickname: "小柯", avatar: "def:star", ageWindow: "95后", orientation: "not_say", orientationCustom: null, mbti: "ENTP",
-      interests: ["展览", "咖啡"], intention: "open",
-      bio: "演示第三人：用于验证未授权者读取被拒绝。",
-      contacts: [{ id: "c-wechat", label: "微信", value: "demo-xiaoke" }],
-    },
-    verificationLevels: [],
-  });
+  // v2.6 安全与隐私：第三个演示用户 C 已并入上面的统一注册表（负面权限测试）。
   // 5 项计分承诺：4 fulfilled + 1 unfulfilled => s=4 f=1 n=5 => 71 分。
   const fxPromises: [string, string, boolean][] = [
     ["每周至少一次一起做一顿饭", "fulfilled", false],
@@ -183,14 +192,28 @@ export function createDemoState(now: number): V2State {
       anchor: null, previousVersionCommitment: null,
     });
   }
-  // 初始演示点数：系统发放，账本可追溯。
-  for (const uid of [...DEMO_USER_IDS, "c" as const]) {
+  // 初始演示点数：系统发放，账本可追溯（v2.8：A–F 全部演示账号）。
+  for (const uid of [...demoUserIds]) {
     state.ledger.push({
       id: `ledger-initial-${uid}`, from: "system:mint", to: `user:${uid}`,
       amount: 1000, unit: "demo-point", businessKey: `initial-grant:${uid}`,
       type: "grant", note: "演示点数初始发放（不可购买/转让/提现）", createdAt: now,
     });
   }
+  // v2.8（M03）：两个种子活动（开放、默认 24 小时有效）；A–F 初始均未入场，
+  // 测试和演示通过正常入口（活动码）加入。活动码不出现在任何公开目录接口中。
+  state.events.push({
+    id: "event-alpha", name: "十月咖啡角 · 演示活动甲",
+    codeHash: eventCodeHash(SEED_EVENT_ALPHA_CODE), status: "open",
+    startsAt: now, endsAt: now + EVENT_SEED_LIFETIME_MS,
+    capacity: EVENT_CAPACITY_DEFAULT, revision: 1, createdAt: now, closedReason: null,
+  });
+  state.events.push({
+    id: "event-beta", name: "周末书展 · 演示活动乙",
+    codeHash: eventCodeHash(SEED_EVENT_BETA_CODE), status: "open",
+    startsAt: now, endsAt: now + EVENT_SEED_LIFETIME_MS,
+    capacity: EVENT_CAPACITY_DEFAULT, revision: 1, createdAt: now, closedReason: null,
+  });
   state.ledger.push({
     id: "ledger-pool-seed", from: "system:mint", to: "pool:reward",
     amount: REWARD_POOL_START, unit: "demo-point", businessKey: "reward-pool-seed",

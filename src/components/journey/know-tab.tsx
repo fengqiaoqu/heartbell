@@ -37,7 +37,8 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
   }
 
   const conn = connections.find(c => c.id === openId) ?? connections[0];
-  const myGrantForContact = view.me.grantsIssued.find(g => g.scope === "profile_contact" && g.active);
+  // v2.8（MD-11）：授权状态按对象过滤 —— 给 C 的授权不再显示在 B 的卡片上（对象与 scope 两个维度）。
+  const myGrantForContact = view.me.grantsIssued.find(g => g.scope === "profile_contact" && g.active && g.audienceId === conn.userId);
   const hasRelationship = !!view.us.relationship || !!view.us.incomingInvite || !!view.us.outgoingInvite;
 
   return <>
@@ -84,7 +85,7 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
         : <p className="muted">联系方式需要对方单独授权；拒绝交换仍可以继续了解。</p>}
       {myGrantForContact
         ? <p className="muted">你已授权对方查看你的联系方式（剩余 {countdownText(myGrantForContact.expiresAt - view.modes.virtualNow)}）。</p>
-        : <Button className="secondary" disabled={busy} onClick={() => act("share-grants", { scope: "profile_contact" })}>授权对方查看我的联系方式</Button>}
+        : <Button className="secondary" disabled={busy} onClick={() => act("share-grants", { scope: "profile_contact", connectionId: conn.id })}>授权对方查看我的联系方式</Button>}
     </Card>
 
     {view.us.incomingInvite && view.us.incomingInvite.members.includes(conn.userId) && <Card>
@@ -107,9 +108,9 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
     </Card>}
 
     {inviteOpen && <Modal title="邀请建立关系" onClose={() => setInviteOpen(false)}>
-      <p className="muted">双方确认后建立应用内关系：共享「我们」空间、可共同写日记与承诺，恋爱雷达随之停止。任一方都可以随时结束绑定，不需要对方同意。</p>
+      <p className="muted">将邀请 <b>{conn.profile?.nickname ?? "对方"}</b> 建立关系。双方确认后建立应用内关系：共享「我们」空间、可共同写日记与承诺，恋爱雷达随之停止。任一方都可以随时结束绑定，不需要对方同意。</p>
       <p className="muted">关系建立事件会生成存证任务（链上只写随机化承诺，不公开身份）。</p>
-      <Button disabled={busy} onClick={async () => { if (await act("relationships/propose")) setInviteOpen(false); }}>送出邀请（72 小时内有效）</Button>
+      <Button disabled={busy} onClick={async () => { if (await act("relationships/propose", { connectionId: conn.id })) setInviteOpen(false); }}>送出邀请（72 小时内有效）</Button>
     </Modal>}
     {closeOpen && <Modal title="关闭连接" onClose={() => setCloseOpen(null)}>
       <p className="muted">关闭后停止新铃声与双方继续访问；保留必要的本人记录。这不是举报，也不影响你的履约分。</p>
