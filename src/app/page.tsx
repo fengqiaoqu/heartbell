@@ -14,8 +14,8 @@ export default function Home() {
       <div><span className="intent-badge">相守</span><p className="muted">双方投入演示点数，目标核验后领取点数或玫瑰演示券。</p></div>
     </div>
     <div className="entry-links">
-      <a className="button" href="/demo/a?tab=meet" target="_blank" rel="noopener noreferrer">打开 A 的窗口 ↗</a>
-      <a className="button secondary" href="/demo/b?tab=meet" target="_blank" rel="noopener noreferrer">打开 B 的窗口 ↗</a>
+      <a className="button" href="/login?account=a&tab=meet" target="_blank" rel="noopener noreferrer">登录并打开 A 的窗口 ↗</a>
+      <a className="button secondary" href="/login?account=b&tab=meet" target="_blank" rel="noopener noreferrer">登录并打开 B 的窗口 ↗</a>
       <a className="button ghost" href="/admin" target="_blank" rel="noopener noreferrer">维护后台 ↗</a>
       <a className="button ghost" href="/demo/admin" target="_blank" rel="noopener noreferrer">演示审核台 ↗</a>
     </div>

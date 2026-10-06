@@ -13,6 +13,10 @@ import {
   opsRejectApproval, opsRequestExceptionResolution, opsRequestInventoryAdjustment,
   opsResolveTrustDispute, opsRewards, opsRelationships, opsSystemHealth, opsUsers,
 } from "../../../../../lib/server/ops/ops-service";
+import {
+  opsAssignReport, opsAppealDecide, opsDecideReport, opsReportDetail, opsReportsList, opsRestrictTarget,
+} from "../../../../../lib/server/v2/services/safety";
+import { opsPrivacyStats } from "../../../../../lib/server/v2/services/privacy";
 import type { AdminPermission, AdminPrincipal } from "../../../../../lib/domain/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -78,10 +82,18 @@ export async function GET(request: Request, context: { params: Promise<{ path: s
         if (action) items = items.filter(e => e.action.includes(action));
         return { items };
       }),
+      // ---------- v2.6 安全工单 ----------
+      "GET /safety/reports": guarded("safety.read", ({ url: u }) => opsReportsList(getV2State(), { status: u.searchParams.get("status") })),
+      "GET /safety/reports/:id": guarded("safety.read", ({ me, params }) =>
+        opsReportDetail(getV2State(), me.accountId, params[2], me.permissions.includes("safety.restrict"))),
+      "GET /safety/stats": guarded("safety.read", ({ me }) => opsPrivacyStats(getV2State(), me)),
     };
-    // 路径参数匹配：claims/:id
+    // 路径参数匹配：claims/:id、safety/reports/:id
     if (!routes[key] && path?.length === 2 && path[0] === "claims") {
       return ok((routes["GET /claims/:id"] as (c: Ctx) => unknown)(ctx));
+    }
+    if (!routes[key] && path?.length === 3 && path[0] === "safety" && path[1] === "reports") {
+      return ok((routes["GET /safety/reports/:id"] as (c: Ctx) => unknown)(ctx));
     }
     const handler = routes[key];
     if (!handler) throw new ApiError(404, "NOT_FOUND", `未知接口：${key}`);
@@ -147,6 +159,32 @@ export async function POST(request: Request, context: { params: Promise<{ path: 
           reason: String(b.reason ?? ""),
         })),
       "POST /anchors/:jobId/retry": guarded("anchors.retry", ({ me, params }) => opsAnchorRetry(getV2State(), me, params[1])),
+      // ---------- v2.6 安全工单 ----------
+      "POST /safety/reports/:id/assign": guarded("safety.assign", ({ me, params }) => {
+        opsAssignReport(getV2State(), me.accountId, params[2], Date.now());
+        audit({ actorId: me.accountId, actorName: me.displayName, action: "safety.assign", targetType: "safety_report", targetId: params[2], detail: "领取安全工单" });
+        return { ok: true };
+      }),
+      "POST /safety/reports/:id/decisions": guarded("safety.decide", ({ me, params, body: b }) => {
+        const result = opsDecideReport(getV2State(), { accountId: me.accountId, displayName: me.displayName }, params[2], {
+          decision: b.decision, userMessage: b.userMessage, internalReason: b.internalReason,
+          expectedRevision: b.expectedRevision,
+        }, Date.now());
+        audit({ actorId: me.accountId, actorName: me.displayName, action: "safety.decide", targetType: "safety_report", targetId: params[2], detail: `裁定：${String(b.decision ?? "")}` });
+        return result;
+      }),
+      "POST /safety/reports/:id/appeal-decision": guarded("safety.appeal", ({ me, params, body: b }) => {
+        const result = opsAppealDecide(getV2State(), { accountId: me.accountId, displayName: me.displayName }, params[2], {
+          decision: b.decision, userMessage: b.userMessage, internalReason: b.internalReason,
+        }, Date.now());
+        audit({ actorId: me.accountId, actorName: me.displayName, action: "safety.appeal_decide", targetType: "safety_report", targetId: params[2], detail: "复核安全工单" });
+        return result;
+      }),
+      "POST /safety/restrictions": guarded("safety.restrict", ({ me, body: b }) => {
+        // 限制的业务生效窗口按虚拟业务时钟计算（与摇铃/雷达门槛同一时钟基准）。
+        const { now } = sweepAndNow();
+        return opsRestrictTarget(getV2State(), { accountId: me.accountId }, String(b.reportId ?? ""), b.scope, b.days, now);
+      }),
       "POST /config/drafts": guarded("config.propose", ({ me, body: b }) =>
         opsProposeConfig(getV2State(), me, {
           radarNewEnabled: b.radarNewEnabled === true,
@@ -165,6 +203,10 @@ export async function POST(request: Request, context: { params: Promise<{ path: 
         : path?.length === 3 && path[0] === "approvals" && path[2] === "approve" ? routes["POST /approvals/:id/approve"]
         : path?.length === 3 && path[0] === "approvals" && path[2] === "reject" ? routes["POST /approvals/:id/reject"]
         : path?.length === 3 && path[0] === "anchors" && path[2] === "retry" ? routes["POST /anchors/:jobId/retry"]
+        // v2.6：safety/reports/:id/{assign|decisions|appeal-decision}（四段路径）
+        : path?.length === 4 && path[0] === "safety" && path[1] === "reports" && path[3] === "assign" ? routes["POST /safety/reports/:id/assign"]
+        : path?.length === 4 && path[0] === "safety" && path[1] === "reports" && path[3] === "decisions" ? routes["POST /safety/reports/:id/decisions"]
+        : path?.length === 4 && path[0] === "safety" && path[1] === "reports" && path[3] === "appeal-decision" ? routes["POST /safety/reports/:id/appeal-decision"]
         : undefined);
     if (!handler) throw new ApiError(404, "NOT_FOUND", `未知接口：${key}`);
     return ok(handler(ctx));

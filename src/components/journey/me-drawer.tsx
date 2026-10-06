@@ -10,6 +10,7 @@ import { WalletPanel } from "../wallet-panel";
 import type { V2StateView } from "../../lib/domain/view-dtos";
 import { ageCohorts, intentionLabels, mbtiOptions, orientationDisplay, orientationLabels, type ContactEntry, type Intention, type Orientation } from "../../lib/domain/v2-types";
 import { officialAvatars } from "../../lib/domain/avatars";
+import { SafetyCenter } from "../privacy/safety-center";
 import { exportEvidence } from "./us-tab";
 
 type ProfileDraft = {
@@ -61,6 +62,8 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
 }) {
   const [walletOpen, setWalletOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [safetyOpen, setSafetyOpen] = useState(false); // v2.6：安全与隐私中心
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [draft, setDraft] = useState<ProfileDraft | null>(null);
   const [interestInput, setInterestInput] = useState("");
   const [avatarError, setAvatarError] = useState("");
@@ -106,7 +109,20 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         <Button className="secondary small" onClick={() => setEditOpen(true)}>编辑个人资料</Button>
+        <Button className="secondary small" onClick={() => setSafetyOpen(true)}>安全与隐私</Button>
       </div>
+      <div className="me-row" style={{ marginTop: 10 }}><b>登录账号</b><span>Demo {me.id.toUpperCase()}（{me.id}）</span></div>
+      <button className="text-button" style={{ padding: 0 }} disabled={logoutBusy}
+        onClick={async () => {
+          setLogoutBusy(true);
+          try {
+            await fetch("/api/demo-auth/logout", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ viewer: me.id }),
+            });
+          } catch { /* 重复退出也成功 */ }
+          window.location.replace(`/login?account=${me.id}`);
+        }}>{logoutBusy ? "退出中…" : "退出登录"}</button>
 
       <h3 style={{ marginTop: 16 }}>我的资料</h3>
       <div className="me-row"><b>出生年代</b><span>{p.ageWindow || "未填写"}</span></div>
@@ -174,8 +190,7 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
       </details>
     </Modal>
 
-    {editOpen && draft && <Modal title="编辑个人资料" onClose={closeEdit}>
-      <label className="field-label" htmlFor="pf-nickname">称呼</label>
+    {editOpen && draft && <Modal title="编辑个人资料" onClose={closeEdit}>      <label className="field-label" htmlFor="pf-nickname">称呼</label>
       <input id="pf-nickname" maxLength={16} value={draft.nickname} onChange={e => setDraft({ ...draft, nickname: e.target.value })} />
 
       <label className="field-label">头像（6 个官方头像，或自由上传）</label>
@@ -286,5 +301,7 @@ export function MeDrawer({ open, onClose, view, busy, act }: {
       <Button disabled={busy || !draft.nickname.trim() || !draft.bio.trim() || draft.contacts.some(c => (c.label.trim() ? 1 : 0) !== (c.value.trim() ? 1 : 0))}
         onClick={saveProfile}>保存资料</Button>
     </Modal>}
+
+    <SafetyCenter open={safetyOpen} onClose={() => setSafetyOpen(false)} viewer={me.id} />
   </>;
 }

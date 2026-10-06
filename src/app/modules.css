@@ -239,6 +239,21 @@ table.admin-table th{color:var(--muted);font-weight:600}
 .entry-links{display:flex;gap:12px;margin:22px 0;flex-wrap:wrap}
 .entry-links .button{flex:1;min-width:150px;text-decoration:none;margin-top:0}
 .notice{font-size:12px;line-height:1.9;padding:13px 15px;background:#FBF3EC;border-radius:14px;color:#8A6A5C;margin:18px 0}
+/* v2.6 安全与隐私中心 */
+.safety-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.safety-tabs button{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:5px 14px;font-size:12.5px;cursor:pointer}
+.safety-tabs button.active{border-color:var(--brand);color:var(--brand);background:var(--brand-soft);font-weight:600}
+.safety-section{display:grid;gap:8px}
+.safety-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px}
+.safety-counts div{background:var(--brand-soft);border-radius:14px;padding:10px;text-align:center}
+.safety-counts b{display:block;font-size:20px;font-family:var(--font-serif);color:var(--brand-deep)}
+.safety-counts small{color:var(--muted)}
+.block-list{display:grid;gap:8px}
+.report-row{cursor:pointer;text-align:left;background:var(--paper);width:100%}
+.safety-events{display:grid;gap:4px;border-top:1px dashed var(--line);padding-top:8px;margin-top:8px}
+.safety-result{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--paper);margin-top:8px}
+.safety-scopes{display:grid;gap:6px;margin:6px 0}
+.safety-scopes .checkbox,.safety-section .checkbox{font-size:12.5px}
 /* 响应式：360–430px 单列不溢出；桌面居中 */
 @media (max-width:480px){
   .phone{height:100dvh;margin:0;border:0;border-radius:0;padding-top:0}

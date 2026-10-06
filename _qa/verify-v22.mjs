@@ -6,13 +6,24 @@ function check(name, cond, detail) {
   if (cond) { passed++; console.log(`ok   ${name}`); }
   else { failed++; console.error(`FAIL ${name}${detail ? " — " + JSON.stringify(detail)?.slice(0, 500) : ""}`); }
 }
+// v2.6：用户接口需要 Demo 会话——登录 a/b 携带双槽位 Cookie。
+async function demoLogin(viewer) {
+  const password = { a: "HeartbellA2026!", b: "HeartbellB2026!" }[viewer];
+  const res = await fetch(`${base}/api/demo-auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: base },
+    body: JSON.stringify({ username: viewer, password }),
+  });
+  if (!res.ok) throw new Error(`登录 ${viewer} 失败：${res.status}`);
+  return (res.headers.get("set-cookie") ?? "").split(";")[0];
+}
+const CK = `${await demoLogin("a")}; ${await demoLogin("b")}`;
 async function get(path) {
-  const res = await fetch(`${base}/api/v2/${path}`);
+  const res = await fetch(`${base}/api/v2/${path}`, { headers: { Cookie: CK } });
   return { status: res.status, json: await res.json() };
 }
 async function post(path, body) {
   const res = await fetch(`${base}/api/v2/${path}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: CK, Origin: base }, body: JSON.stringify(body),
   });
   return { status: res.status, json: await res.json() };
 }

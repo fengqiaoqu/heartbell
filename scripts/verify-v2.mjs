@@ -15,14 +15,26 @@ function check(name, condition, detail) {
   console.log(`ok  ${name}`);
 }
 
+// v2.6：普通用户接口需要 Demo 会话——先登录 a/b，携带双槽位 Cookie（同浏览器双窗口演示形态）。
+async function demoLogin(viewer) {
+  const password = { a: "HeartbellA2026!", b: "HeartbellB2026!" }[viewer];
+  const res = await fetch(`${base}/api/demo-auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: base },
+    body: JSON.stringify({ username: viewer, password }),
+  });
+  if (!res.ok) throw new Error(`登录 ${viewer} 失败：${res.status}`);
+  return (res.headers.get("set-cookie") ?? "").split(";")[0];
+}
+const CK = `${await demoLogin("a")}; ${await demoLogin("b")}`;
+
 async function get(path) {
-  const response = await fetch(`${base}/api/v2/${path}`);
+  const response = await fetch(`${base}/api/v2/${path}`, { headers: { Cookie: CK } });
   const json = await response.json();
   return { status: response.status, json };
 }
 async function post(path, body) {
   const response = await fetch(`${base}/api/v2/${path}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: CK, Origin: base }, body: JSON.stringify(body),
   });
   const json = await response.json();
   return { status: response.status, json };

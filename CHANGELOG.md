@@ -3,6 +3,74 @@
 本文件面向协作者，记录每个版本的修改内容、根因与验证情况。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号与 Git 标签对应。
 
+## [v2.6] - 2026-10-07
+
+依据《v2.6修改.md》：①依据《Heartbell-v2.5-Demo登录交付》搭建登录系统；②依据《Heartbell-v2.2-安全与隐私模块交付》搭建安全与隐私模块（M0–M3 完整本地集成）。
+分支 `feature/v2.6-login-safety`（自 v2.5 基线 `bf715e5` 创建，保留全部 v2.5/v2.2 成果），标签 `v2.6`。模块边界与 M4 前提见 `docs/SAFETY-PRIVACY.md`。
+
+### 新增
+
+- **Demo 登录系统（v2.5 交付）**：
+  - 新增 `/login` 登录页（品牌视觉、420px 居中卡片、360px 无横向溢出；账号/密码/显示切换/Enter 提交/错误统一文案“账号或密码不正确”）；
+  - 预置演示账号（公开凭据，README 列出）：`a / HeartbellA2026!`、`b / HeartbellB2026!`，v2.6 另增安全验证第三人 `c / HeartbellC2026!`；账号 trim + 转小写、密码区分大小写（scrypt + timingSafeEqual，服务端专用）；
+  - **双 Cookie 槽位会话**：`hb_demo_a` / `hb_demo_b` / `hb_demo_c` 各存高熵 sessionId（randomBytes(32)），服务端内存会话表（globalThis 独立键，不与业务 state/opsStore 混用），真实时间 8 小时有效（虚拟业务时钟不影响），HttpOnly/SameSite=Lax/Path=/、Max-Age=28800；同浏览器 A/B 可同时登录互不覆盖；
+  - **服务器会话门禁**：`/api/v2` 全部普通用户路由在读取/修改业务及 sweep 之前校验会话（未登录 401 且不触发业务写入）；body.viewer 与 query.viewer 冲突返回 400；a 的 token 放入 b 槽位、仅登录 a 却请求 viewer=b 均被拒；旧 `/api/demo` 同一口径（无免登录兼容通道）；`/demo/a|b|c` 页面服务端校验会话，未登录 302 到对应登录页（携带原栏目）；
+  - 三个接口：`POST /api/demo-auth/login`（返回 viewer/nickname/expiresAt/redirectTo，不返回 token）、`GET /api/demo-auth/session`、`POST /api/demo-auth/logout`（只撤销对应槽位，不影响另一账号或 `hb_ops_session`；重复退出成功）；登录/登出/用户写请求做同源 Origin 检查；
+  - 客户端：首页 A/B 入口改为 `/login?account=a/b&tab=meet`；应用壳遇 401 停止轮询、清空业务视图并回对应登录页；「我的」显示登录账号 + 退出登录；
+  - 边界保持：`/admin` 与 `/api/v2/ops/*` 沿用管理员会话（用户 Cookie 不能通过 ops 校验）；`/demo/admin` 与 `/api/v2/admin/*` 保持 APP_MODE=demo 演示工具边界；`APP_MODE=live` 拒绝 Demo 登录与会话（NODE_ENV=production + APP_MODE=demo 仍可演示）。
+- **安全与隐私模块（v2.2 交付，M0–M3）**：
+  - **集中隐私策略** `src/lib/server/v2/privacy-policy.ts`：按对象/连接/版本/屏蔽状态判断读取；联系方式与履约摘要读取 = 有效授权 + 未关闭连接 + 未被屏蔽；`view.ts`（连接档案/联系方式/摘要/通知/雷达候选）、`diary.ts` 详情、`trust.ts` 直接接口逐入口接入；
+  - **撤权级联修复**：关闭连接、结束绑定、屏蔽、注销统一撤销双向全部授权（此前旧授权在连接关闭/关系结束后仍可通过独立接口读取）；
+  - **日记版本裁剪**：`GET /diaries/detail` 不再返回原始 doc——私人草稿与已撤回版本仅作者可见；屏蔽后仅双方已确认版本保留为只读归档（T10–T13）；
+  - **屏蔽/解除**：`targetRef` 由服务器按铃声/连接/关系来源签发（绑定调用者、7 天有效；未揭晓对象仅显示“相遇对象 · XN9”式临时标签）；屏蔽级联 = 复用 active block → 关闭连接 → 撤双向授权 → 取消待响应铃声/邀请（同一逻辑事务）；**关系不自动结束、计划不自动扣分/没收、退出与申诉保持可用**；解除屏蔽带 expectedRevision 且不恢复任何旧状态；受限操作返回中性“当前无法继续此操作”；
+  - **举报闭环**：六种原因、10–1000 字说明、可选“同时屏蔽”（默认不勾选，同事务提交）；频率限制 5 次/24h（429）、同源同因未结案复用工单；补充/撤回（仅 submitted）/一次复核（7 天窗口）；状态与用户可见结论（userMessage）与内部意见（internalReason）严格分离；
+  - **运营举报工作台**：`/admin` 新增「安全工单」模块（脱敏队列、领取、补正、结案、复核、限时限制）；`/api/v2/ops/safety/*` 受控接口 + 新权限点 `safety.read/assign/decide/appeal/restrict`（owner 全部、reviewer 含 appeal、support 只读队列）；未领取不可读案内材料、非受理人不能裁定、旧 revision 409、原审核员复核自己案件 409（回避）；敏感材料读取写入脱敏审计（`privacyAudits`，不记原文/联系方式/salt/令牌）；限时发现/摇铃限制不封锁救济操作；
+  - **我的数据**：`GET /privacy/overview`、`/privacy/grants`（含 revoke-all）；数据导出（范围可选 profile/contacts/diaries/promises/ledger/notifications，24h 有效，下载时再鉴权；**不含**存证 salt、他人草稿、后台内部意见）；注销账号（密码再认证 + 输入“注销” + 明确同意结束绑定；立即撤会话/撤权/停止发现/结束绑定；演示环境真实清理个人资料与未共同确认草稿；在途争议/举报/已广播存证按受限保留诚实标注，独立受限凭据只查注销结果）；
+  - 用户端 UI：「我的 → 安全与隐私」中心（总览/授权/屏蔽/举报/我的数据五栏）；了解页连接卡片、关系设置、收到铃声弹层新增举报/屏蔽入口；屏蔽确认固定文案“屏蔽不会自动结束当前绑定”，解除提示“不会恢复此前的连接和授权”；
+  - 新增演示第三人 **c**（小柯，`def:star` 头像）用于负面权限验证（始终无权读取 A/B 授权内容）。
+
+### 修复
+
+- 关闭连接后 `trust/summary` 独立接口仍可用旧授权读取（T08）——closeConnection 现在级联撤权。
+- 结束绑定后旧授权仍可读取联系方式与摘要（T09）——endRelationship 现在级联撤权。
+- 日记详情接口返回完整 doc（含对方从未分享的草稿，T10/T11）——改为按版本裁剪的 DTO。
+- 屏蔽后旧站内提醒仍透出待确认日记标题（T58）——通知按策略过滤。
+
+### 变更
+
+- `package.json` 版本升至 `2.6.0`；新增 `npm run verify:login`、`npm run verify:safety`。
+- `V2User` 新增 `disabledAt` 字段、`V2State` 新增 `blocks/safetyReports/safetyTargetRefs/restrictions/privacyAudits/dataExports/deletions` 集合：P1 持久化适配器需同步建列。
+- `AdminPermission` 新增 `safety.*` 五个权限点（角色矩阵见 `docs/SAFETY-PRIVACY.md` 第 4 节）。
+- 既有验证脚本（verify:v2 / verify:demo / verify-v22 / verify-v25）全部改为先登录并携带双槽位 Cookie，原有断言保留。
+
+### 涉及文件（主要）
+
+| 层 | 文件 |
+|---|---|
+| 登录服务端 | `src/lib/server/demo-auth.ts`（新增）、`src/app/api/demo-auth/{login,session,logout}/route.ts`（新增）、`src/app/login/`（新增） |
+| 登录接入 | `src/app/api/v2/[...path]/route.ts`（会话门禁+参数化路由）、`src/app/api/demo/route.ts`、`src/app/demo/[user]/page.tsx`、`src/app/page.tsx`、`src/components/journey/app-shell.tsx`、`me-drawer.tsx`、`src/lib/server/v2/session.ts` |
+| 安全领域 | `src/lib/domain/safety-types.ts`（新增）、`v2-types.ts`（disabledAt）、`admin-types.ts`（safety.* 权限） |
+| 策略与服务 | `src/lib/server/v2/privacy-policy.ts`（新增）、`services/safety.ts`（新增）、`services/privacy.ts`（新增）、`meet.ts`/`relationship.ts`/`trust.ts`/`diary.ts`/`view.ts`（策略接入与级联） |
+| 运营 | `src/app/api/v2/ops/[...path]/route.ts`（安全工单接口）、`src/app/admin/page.tsx`（安全工单模块） |
+| 用户端 UI | `src/components/privacy/safety-center.tsx`（新增）、`know-tab.tsx`/`us-tab.tsx`/`app-shell.tsx`（对象菜单）、`modules.css` |
+| 数据 | `demo-repo.ts`（安全集合、用户 C、pushPrivacyAudit） |
+| 文档/验证 | `docs/SAFETY-PRIVACY.md`（新增）、`scripts/verify-demo-login.mjs`（新增）、`_qa/verify-safety.mjs`（新增）、4 个既有脚本适配 |
+
+### 验证
+
+- 专项：`npm run verify:login` —— **39 项**（登录/凭据/槽位保护/未登录拒绝/页面门禁/双窗口/退出/时钟/Origin）全部通过；`npm run verify:safety` —— **76 项**（授权闭环 T01–T09、日记裁剪 T10–T14、屏蔽级联 T15–T21、举报与运营闭环、导出与注销）全部通过。
+- 回归：`npm run verify:v2` 103 项 + 合约 26 项、`_qa/verify-v22.mjs` 38 项、`npm run verify:v25` 68 项、`npm run verify:demo`（V1 旧接口，先登录再调用）全部通过。
+- 工程：`npm run typecheck`、干净 `npm run build` 通过。
+- 未覆盖（M4 依赖，非演示范围）：T49 删除与链任务对账、T50 worker 重试恢复、T51 备份恢复重放删除清单、T52 真实模式 viewer 拒绝——已记录于 `docs/SAFETY-PRIVACY.md` 第 6 节。
+
+### 协作者注意
+
+- **验证脚本现在必须先登录**：用户接口不再接受裸 viewer 调用；脚本助手已内置登录（`DEMO_URL` 指向运行中的服务）。本地浏览器操作请从 `/login` 进入。
+- 会话表/安全数据均在内存（重启清空）：P1 持久化需为 `hb_demo_*` 会话与 7 个新集合建表；注销的“备份恢复重放删除清单”依赖持久层任务框架。
+- c 账号是公开演示凭据（用于验证“未授权者始终读不到”），勿用于双人主流程演示。
+- 后台演示账号不变（owner/owner2/reviewer）；reviewer 新增 `safety.appeal`（复核回避由服务端按案件校验，不依赖角色自觉）。
+- 本期用户登录为**单进程本地演示**（注册未实现；`/demo/admin` 与 `/api/v2/admin/*` 仍为独立演示工具，不宣称全服务已满足正式上线安全要求）。
+
 ## [v2.5] - 2026-10-07
 
 依据《v2.5修改.md》6 条建议 + GitHub 提交要求逐条落地。分支 `feature/v2.5-admin-workbench`，标签 `v2.5`。

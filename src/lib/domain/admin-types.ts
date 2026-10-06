@@ -12,13 +12,19 @@ export const adminRoleLabels: Record<AdminRole, string> = {
   auditor: "审计",
 };
 
-// 权限点（设计文档第 6 节接口表的权限列收敛）。
+// 权限点（设计文档第 6 节接口表的权限列收敛 + v2.6 安全工单 safety.*）。
 export type AdminPermission =
   | "overview.read" | "claims.read" | "claims.assign" | "claims.decide"
   | "cases.read" | "cases.resolve" | "approvals.request" | "approvals.approve"
   | "users.read" | "rewards.read" | "inventory.propose"
   | "anchors.read" | "anchors.retry"
-  | "system.read" | "config.propose" | "audit.read";
+  | "system.read" | "config.propose" | "audit.read"
+  // v2.6 安全与隐私（safety_reviewer / safety_supervisor 为能力要求，复用现有账号体系）：
+  | "safety.read"      // 查看脱敏举报队列
+  | "safety.assign"    // 领取/改派工单（领取后才能裁定）
+  | "safety.decide"    // 补正/结案（仅被指派审核员；不能复核自己的裁定）
+  | "safety.appeal"    // 复核裁定（原审核员回避）
+  | "safety.restrict"; // 批准限时发现/摇铃限制（主管能力）
 
 // 角色权限矩阵（owner 不自动获得全部私密材料权限，矩阵按设计文档第 4 节收敛）。
 export const rolePermissions: Record<AdminRole, AdminPermission[]> = {
@@ -27,13 +33,15 @@ export const rolePermissions: Record<AdminRole, AdminPermission[]> = {
     "cases.read", "cases.resolve", "approvals.request", "approvals.approve",
     "users.read", "rewards.read", "inventory.propose",
     "anchors.read", "anchors.retry", "system.read", "config.propose", "audit.read",
+    "safety.read", "safety.assign", "safety.decide", "safety.appeal", "safety.restrict",
   ],
   reviewer: [
     "overview.read", "claims.read", "claims.assign", "claims.decide",
     "cases.read", "cases.resolve", "approvals.request", "approvals.approve",
     "rewards.read",
+    "safety.read", "safety.assign", "safety.decide", "safety.appeal",
   ],
-  support: ["overview.read", "users.read"],
+  support: ["overview.read", "users.read", "safety.read"],
   maintainer: ["overview.read", "anchors.read", "anchors.retry", "system.read", "config.propose", "rewards.read"],
   auditor: ["overview.read", "audit.read"],
 };

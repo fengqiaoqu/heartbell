@@ -3,13 +3,14 @@ import type { V2State } from "../../../repositories/demo-repo";
 import { currentTrustSnapshot, latestEndedRelationship, refreshTrustSnapshot } from "../../../repositories/demo-repo";
 import { computeTrust, trustReasonLabels } from "../../../domain/score";
 import { forbidden } from "../errors";
-import { findActiveGrant } from "./relationship";
+import { canReadShared } from "../privacy-policy";
 import type { TrustSnapshotV2 } from "../../../domain/v2-types";
 
-// 受众读取：无有效授权返回 FORBIDDEN（不泄露是否存在历史）。
+// 受众读取：有效授权 + 未关闭连接 + 未被屏蔽；否则 FORBIDDEN（不泄露是否存在历史）。
 export function readTrustForAudience(state: V2State, subjectId: string, audienceId: string, now: number): TrustSnapshotV2 {
-  const grant = findActiveGrant(state, subjectId, audienceId, "trust_summary", now);
-  if (!grant) throw forbidden("目前未开放参考记录（未授权或授权已失效）");
+  if (!canReadShared(state, subjectId, audienceId, "trust_summary", now)) {
+    throw forbidden("目前未开放参考记录（未授权或授权已失效）");
+  }
   const snapshot = currentTrustSnapshot(state, subjectId);
   if (!snapshot || snapshot.revokedAt) throw forbidden("目前未开放参考记录");
   return snapshot;

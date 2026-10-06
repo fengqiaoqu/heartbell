@@ -7,6 +7,10 @@ import type {
   RelationshipStatus, RewardReservation, ShareGrantV2, TrustSnapshotV2, V2Relationship, V2User,
   NotificationV2, FeatureConfigV2, ApprovalRequest, NotificationKind,
 } from "../domain/v2-types";
+import type {
+  UserBlock, SafetyReport, SafetyTargetRef, AccountRestriction, PrivacyAuditEntry,
+  DataExportJob, AccountDeletion,
+} from "../domain/safety-types";
 import { defaultFeatureConfig, defaultSpaceSettings } from "../domain/v2-types";
 import { INVEST_PER_USER, PLAN_TERMS_VERSION, REWARD_POOL_START } from "../domain/plan-rules";
 import { RELATIONSHIP_TERMS_VERSION } from "../domain/relationship";
@@ -35,6 +39,14 @@ export interface V2State {
   featureConfig: FeatureConfigV2;             // v2.5：功能暂停与公告
   approvals: ApprovalRequest[];               // v2.5：双人审批队列
   lastSweepAt: number | null;                 // v2.5：最近一次状态清扫（运行状态展示）
+  // v2.6 安全与隐私（内存演示仓库；P1 持久化适配器需同步建表）
+  blocks: UserBlock[];
+  safetyReports: SafetyReport[];
+  safetyTargetRefs: SafetyTargetRef[];
+  restrictions: AccountRestriction[];
+  privacyAudits: PrivacyAuditEntry[];
+  dataExports: DataExportJob[];
+  deletions: AccountDeletion[];
   virtualOffsetMs: number;
 }
 
@@ -53,10 +65,13 @@ export function createDemoState(now: number): V2State {
     relationships: [], diaries: [], promises: [], trustSnapshots: [], plans: [],
     ledger: [], reservations: [], claims: [], benefits: [], anchorJobs: [], disputes: [],
     notifications: [], featureConfig: { ...defaultFeatureConfig }, approvals: [],
-    lastSweepAt: null, virtualOffsetMs: 0,
+    lastSweepAt: null,
+    blocks: [], safetyReports: [], safetyTargetRefs: [], restrictions: [],
+    privacyAudits: [], dataExports: [], deletions: [],
+    virtualOffsetMs: 0,
   };
   state.users.set("a", {
-    id: "a", kind: "demo", adultDeclared: false,
+    id: "a", kind: "demo", adultDeclared: false, disabledAt: null,
     profile: {
       nickname: "小铃", avatar: "def:coffee", ageWindow: "00后", orientation: "not_say", orientationCustom: null, mbti: "INFP",
       interests: ["咖啡", "音乐", "散步"], intention: "open",
@@ -72,7 +87,7 @@ export function createDemoState(now: number): V2State {
     ],
   });
   state.users.set("b", {
-    id: "b", kind: "demo", adultDeclared: false,
+    id: "b", kind: "demo", adultDeclared: false, disabledAt: null,
     profile: {
       nickname: "阿响", avatar: "def:cat", ageWindow: "95后", orientation: "men", orientationCustom: null, mbti: "ISFJ",
       interests: ["猫咪", "音乐", "展览"], intention: "serious",
@@ -90,7 +105,7 @@ export function createDemoState(now: number): V2State {
   // 演示前史：b 的上一段已结束关系（虚构对象，卡片持续标注演示数据）。
   const exId = "fx-ex-of-b";
   state.users.set(exId, {
-    id: exId, kind: "fixture", adultDeclared: true,
+    id: exId, kind: "fixture", adultDeclared: true, disabledAt: null,
     profile: {
       nickname: "演示前史对象", avatar: "🕯️", ageWindow: "", orientation: null, orientationCustom: null, mbti: null,
       interests: [], intention: "open",
@@ -109,6 +124,17 @@ export function createDemoState(now: number): V2State {
     spaceSettings: { ...defaultSpaceSettings },
   };
   state.relationships.push(fxRel);
+  // v2.6 安全与隐私：第三个演示用户 C（负面权限测试 —— 始终无权读取 A/B 之间授权的内容）。
+  state.users.set("c", {
+    id: "c", kind: "demo", adultDeclared: true, disabledAt: null,
+    profile: {
+      nickname: "小柯", avatar: "def:star", ageWindow: "95后", orientation: "not_say", orientationCustom: null, mbti: "ENTP",
+      interests: ["展览", "咖啡"], intention: "open",
+      bio: "演示第三人：用于验证未授权者读取被拒绝。",
+      contacts: [{ id: "c-wechat", label: "微信", value: "demo-xiaoke" }],
+    },
+    verificationLevels: [],
+  });
   // 5 项计分承诺：4 fulfilled + 1 unfulfilled => s=4 f=1 n=5 => 71 分。
   const fxPromises: [string, string, boolean][] = [
     ["每周至少一次一起做一顿饭", "fulfilled", false],
@@ -133,7 +159,7 @@ export function createDemoState(now: number): V2State {
     });
   }
   // 初始演示点数：系统发放，账本可追溯。
-  for (const uid of DEMO_USER_IDS) {
+  for (const uid of [...DEMO_USER_IDS, "c" as const]) {
     state.ledger.push({
       id: `ledger-initial-${uid}`, from: "system:mint", to: `user:${uid}`,
       amount: 1000, unit: "demo-point", businessKey: `initial-grant:${uid}`,
@@ -245,6 +271,20 @@ export function pushNotification(
 
 export function unreadNotificationsOf(state: V2State, userId: string): NotificationV2[] {
   return state.notifications.filter(n => n.userId === userId && n.readAt === null);
+}
+
+// v2.6：脱敏审计（不写联系方式、日记/举报原文、salt 或令牌）。
+export function pushPrivacyAudit(
+  state: V2State,
+  entry: { actorId: string; actorRole: "user" | "admin"; action: string; targetType: string; targetId: string; result?: "ok" | "rejected" },
+): void {
+  state.privacyAudits.push({
+    id: `paudit-${Math.random().toString(36).slice(2, 10)}`,
+    actorId: entry.actorId, actorRole: entry.actorRole,
+    action: entry.action, targetType: entry.targetType, targetId: entry.targetId,
+    result: entry.result ?? "ok", at: Date.now(),
+  });
+  if (state.privacyAudits.length > 500) state.privacyAudits.splice(0, state.privacyAudits.length - 500);
 }
 
 export function relationshipStatusOf(state: V2State, userId: string): RelationshipStatus | "none" {

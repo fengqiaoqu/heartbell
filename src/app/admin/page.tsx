@@ -6,10 +6,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./admin.css";
 
-type Section = "overview" | "claims" | "cases" | "users" | "rewards" | "anchors" | "system";
+type Section = "overview" | "claims" | "safety" | "cases" | "users" | "rewards" | "anchors" | "system";
 const sections: { id: Section; text: string }[] = [
   { id: "overview", text: "运行总览" },
   { id: "claims", text: "核验工作台" },
+  { id: "safety", text: "安全工单" },
   { id: "cases", text: "例外与申诉" },
   { id: "users", text: "用户与关系" },
   { id: "rewards", text: "奖励与账本" },
@@ -118,6 +119,7 @@ export default function AdminWorkbenchPage() {
       {flash && <div className="ops-ok">{flash}</div>}
       {section === "overview" && <OverviewPanel session={session} onSection={setSection} act={act} busy={busy} />}
       {section === "claims" && <ClaimsPanel session={session} act={act} busy={busy} />}
+      {section === "safety" && <SafetyPanel session={session} act={act} busy={busy} />}
       {section === "cases" && <CasesPanel act={act} busy={busy} />}
       {section === "users" && <UsersPanel />}
       {section === "rewards" && <RewardsPanel session={session} act={act} busy={busy} />}
@@ -379,6 +381,170 @@ function ClaimsPanel({ session, act, busy }: { session: SessionInfo; act: Act; b
                   loadDetail(detail.id);
                   loadList();
                 }, "审核决定已保存，双方已收到站内通知")}>提交决定</button>
+            </div>
+          </div>}
+        </>}
+      </div>
+    </div>
+  </>;
+}
+
+// ---------- 安全工单（v2.6） ----------
+interface SafetyReportRow {
+  id: string; reason: string; reasonLabel: string; status: string; statusLabel: string;
+  descriptionExcerpt: string; createdAt: number; updatedAt: number; assigned: boolean; hasAppeal: boolean;
+}
+interface SafetyReportDetail extends SafetyReportRow {
+  targetLabel: string; description: string; revision: number;
+  supplements: { at: number; text: string }[];
+  events: { at: number; label: string }[];
+  userResult: { at: number; userMessage: string } | null;
+  appeal: { reason: string; requestedAt: number; decidedAt: number | null; userMessage: string | null } | null;
+  internal: { assignedTo: string | null; decisions: { at: number; reviewerName: string; decision: string; userMessage: string; internalReason: string | null }[] };
+}
+function SafetyPanel({ session, act, busy }: { session: SessionInfo; act: Act; busy: boolean }) {
+  const [filter, setFilter] = useState<"submitted" | "in_review" | "awaiting_supplement" | "appeal_requested" | "all">("submitted");
+  const [rows, setRows] = useState<SafetyReportRow[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [detail, setDetail] = useState<SafetyReportDetail | null>(null);
+  const [decision, setDecision] = useState<"resolved" | "rejected" | "need_supplement">("resolved");
+  const [userMessage, setUserMessage] = useState("");
+  const [internalReason, setInternalReason] = useState("");
+  const [restrictDays, setRestrictDays] = useState(7);
+
+  const canRead = session.permissions.includes("safety.read");
+  const canAssign = session.permissions.includes("safety.assign");
+  const canDecide = session.permissions.includes("safety.decide");
+  const canAppeal = session.permissions.includes("safety.appeal");
+  const canRestrict = session.permissions.includes("safety.restrict");
+
+  const loadList = useCallback(() => {
+    opsGet<{ items: SafetyReportRow[] }>(`safety/reports${filter === "all" ? "" : `?status=${filter}`}`)
+      .then(d => setRows(Array.isArray(d) ? d : (d as { items: SafetyReportRow[] }).items))
+      .catch(() => undefined);
+  }, [filter]);
+  const loadDetail = useCallback((id: string) => {
+    opsGet<SafetyReportDetail>(`safety/reports/${id}`).then(setDetail).catch(() => setDetail(null));
+  }, []);
+  useEffect(() => { if (!canRead) return; loadList(); const t = setInterval(loadList, 5000); return () => clearInterval(t); }, [loadList, canRead]);
+  useEffect(() => { if (selected) loadDetail(selected); }, [selected, loadDetail]);
+
+  if (!canRead) return <>
+    <div className="topbar"><h1>安全工单</h1></div>
+    <div className="admin-panel"><p style={{ color: "#8B7A83", fontSize: 12 }}>当前角色没有 safety.read 权限，服务端拒绝读取举报队列。</p></div>
+  </>;
+
+  const statusBadge = (status: string) =>
+    status === "resolved" ? <span className="ops-badge ok">已处理</span>
+      : status === "rejected" ? <span className="ops-badge bad">暂无法处理</span>
+        : status === "withdrawn" ? <span className="ops-badge mut">已撤回</span>
+          : status === "appeal_requested" ? <span className="ops-badge warn">复核中</span>
+            : <span className="ops-badge warn">{status === "submitted" ? "待领取" : status === "awaiting_supplement" ? "待补充" : "处理中"}</span>;
+
+  return <>
+    <div className="topbar"><h1>安全工单</h1></div>
+    <p className="subline">队列脱敏（不含举报人/被举报者身份）；领取后才能读取案内材料并裁定，敏感读取已留痕。复核必须由不同审核员处理。</p>
+    <div className="ops-tabs">
+      {([["submitted", "待领取"], ["in_review", "处理中"], ["awaiting_supplement", "待补充"], ["appeal_requested", "待复核"], ["all", "全部"]] as const).map(([id, label]) => (
+        <button key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>{label}</button>
+      ))}
+    </div>
+    <div className="admin-grid2">
+      <div>
+        {rows.length === 0 && <div className="admin-panel"><p style={{ color: "#8B7A83", fontSize: 12 }}>该筛选下没有工单。</p></div>}
+        {rows.map(r => <div key={r.id} className={`ops-queue-item ${selected === r.id ? "selected" : ""}`} onClick={() => setSelected(r.id)}>
+          <div className="row1"><span className="mono-xs">{r.id}</span>{statusBadge(r.status)}</div>
+          <small>{r.reasonLabel} · {r.descriptionExcerpt}…<br />
+            提交 {zhDate(r.createdAt)} · {r.assigned ? "已领取" : "未领取"}{r.hasAppeal ? " · 待复核" : ""}</small>
+        </div>)}
+      </div>
+      <div>
+        {!selected || !detail ? <div className="admin-panel"><p style={{ color: "#8B7A83", fontSize: 12 }}>选择左侧工单查看材料（仅被指派审核员/主管可读）。</p></div> : <>
+          <div className="admin-panel">
+            <h3>{detail.id} {statusBadge(detail.status)}</h3>
+            <div className="ops-detail-row"><b>原因</b><span>{detail.reasonLabel}</span></div>
+            <div className="ops-detail-row"><b>对象（脱敏）</b><span>{detail.targetLabel}</span></div>
+            <div className="ops-detail-row"><b>举报说明</b><span>{detail.description}</span></div>
+            <div className="ops-detail-row"><b>受理人</b><span>{detail.internal.assignedTo ?? "未领取"}</span></div>
+            <div className="ops-detail-row"><b>版本</b><span>rev {detail.revision}</span></div>
+            {detail.supplements.length > 0 && <>
+              <h3 style={{ marginTop: 12 }}>用户补充</h3>
+              {detail.supplements.map((s, i) => (
+                <div className="ops-detail-row" key={i}><b>{zhTime(s.at)}</b><span>{s.text}</span></div>
+              ))}
+            </>}
+            {detail.internal.decisions.length > 0 && <>
+              <h3 style={{ marginTop: 12 }}>裁定历史（内部意见不出用户端）</h3>
+              {detail.internal.decisions.map((d, i) => (
+                <div className="ops-detail-row" key={i}><b>{zhTime(d.at)}</b>
+                  <span>{d.reviewerName} · {d.decision}<br />用户可见：{d.userMessage}{d.internalReason ? <><br />内部：{d.internalReason}</> : null}</span></div>
+              ))}
+            </>}
+          </div>
+          {canAssign && !detail.internal.assignedTo && ["submitted", "appeal_requested"].includes(detail.status) && <div className="ops-decisionbar">
+            <button className="ops-btn plum sm" disabled={busy}
+              onClick={() => act(async () => { await opsPost(`safety/reports/${detail.id}/assign`); loadDetail(detail.id); loadList(); }, "已领取工单")}>领取工单</button>
+          </div>}
+          {canDecide && detail.internal.assignedTo && ["in_review", "awaiting_supplement"].includes(detail.status) && <div className="ops-decisionbar">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <label className="ops-field">裁定</label>
+                <select className="ops-input" value={decision} onChange={e => setDecision(e.target.value as typeof decision)}>
+                  <option value="resolved">已处理（用户可见结论）</option>
+                  <option value="rejected">暂无法处理</option>
+                  <option value="need_supplement">要求用户补充</option>
+                </select>
+              </div>
+              <div>
+                <label className="ops-field">限时限制（主管批准后生效）</label>
+                <select className="ops-input" value={restrictDays} onChange={e => setRestrictDays(Number(e.target.value))} disabled={!canRestrict}>
+                  <option value={0}>不限制</option>
+                  <option value={3}>限制摇铃/发现 3 天</option>
+                  <option value={7}>限制摇铃/发现 7 天</option>
+                  <option value={30}>限制摇铃/发现 30 天</option>
+                </select>
+              </div>
+            </div>
+            <label className="ops-field">用户可见结果（5–200 字）</label>
+            <textarea className="ops-input" maxLength={200} value={userMessage} onChange={e => setUserMessage(e.target.value)} placeholder="例如：已核实并已对相关账号做出处理。" />
+            <label className="ops-field">内部意见（仅运营可见，补充要求必填）</label>
+            <textarea className="ops-input" maxLength={500} value={internalReason} onChange={e => setInternalReason(e.target.value)} />
+            <div className="ops-actions">
+              <button className="ops-btn" disabled={busy || userMessage.trim().length < 5 || (decision === "need_supplement" && !internalReason.trim())}
+                onClick={() => act(async () => {
+                  await opsPost(`safety/reports/${detail.id}/decisions`, {
+                    decision, userMessage: userMessage.trim(), internalReason: internalReason.trim() || null,
+                    expectedRevision: detail.revision,
+                  });
+                  if (canRestrict && restrictDays > 0 && decision === "resolved") {
+                    await opsPost("safety/restrictions", { reportId: detail.id, scope: "ring", days: restrictDays });
+                  }
+                  setUserMessage(""); setInternalReason("");
+                  loadDetail(detail.id); loadList();
+                }, "裁定已保存，用户已收到站内通知")}>提交裁定</button>
+            </div>
+          </div>}
+          {canAppeal && detail.status === "appeal_requested" && detail.appeal && !detail.appeal.decidedAt && <div className="ops-decisionbar">
+            <p className="panel-sub">复核理由：{detail.appeal.reason}。复核必须由非原审核员处理（服务端回避校验）。</p>
+            <label className="ops-field">复核结论（用户可见）</label>
+            <textarea className="ops-input" maxLength={200} value={userMessage} onChange={e => setUserMessage(e.target.value)} />
+            <div className="ops-actions">
+              <button className="ops-btn" disabled={busy || userMessage.trim().length < 5}
+                onClick={() => act(async () => {
+                  await opsPost(`safety/reports/${detail.id}/appeal-decision`, {
+                    decision: "resolved", userMessage: userMessage.trim(),
+                    internalReason: internalReason.trim() || null,
+                  });
+                  setUserMessage(""); loadDetail(detail.id); loadList();
+                }, "复核结论已送达用户")}>维持/改判（已处理）</button>
+              <button className="ops-btn ghost" disabled={busy || userMessage.trim().length < 5}
+                onClick={() => act(async () => {
+                  await opsPost(`safety/reports/${detail.id}/appeal-decision`, {
+                    decision: "rejected", userMessage: userMessage.trim(),
+                    internalReason: internalReason.trim() || null,
+                  });
+                  setUserMessage(""); loadDetail(detail.id); loadList();
+                }, "复核结论已送达用户")}>暂无法处理</button>
             </div>
           </div>}
         </>}

@@ -7,7 +7,29 @@
 统一响应 `{ data, requestId, mode }`；错误 `{ error: { code, message, retryable }, requestId }`。
 错误码包括 `BAD_REQUEST`、`UNAUTHENTICATED`、`FORBIDDEN`、`NOT_FOUND`、`VERSION_CONFLICT`、`CONSENT_REQUIRED`、`ALREADY_BOUND`、`INSUFFICIENT_BALANCE`、`REWARD_UNAVAILABLE`、`CLAIM_PENDING`、`PLAN_STATE`、`RADAR_REQUIRED` 等。
 
-**会话**：P0 使用 `viewer=a|b` 本地演示身份（请求体或 query 参数）。所有成员资格、授权、状态与并发校验仍在服务端执行；live 模式必须替换为服务端可信会话，不能信任请求中的身份参数（实现集中在 `src/lib/server/v2/session.ts` 以便替换）。
+**会话**：v2.6 起普通用户接口需先通过 Demo 登录会话（`POST /api/demo-auth/login` 设置 `hb_demo_a|b|c` Cookie；同浏览器多账号各自独立槽位）。请求中的 `viewer` 参数只用于选择会话槽位，服务器校验 Cookie 对应会话确实属于该账号后才执行业务（含 sweep）；`admin/*` 演示台路由保持 APP_MODE=demo 边界，不套用户会话。body 与 query 携带不同 viewer 时返回 400。
+
+### Demo 登录（`/api/demo-auth`，v2.6）
+
+| 接口 | 要点 |
+|---|---|
+| `POST /api/demo-auth/login` `{username,password,tab?}` | 预置账号（a/b/c，README 列出）；成功设置对应槽位 Cookie（HttpOnly/SameSite=Lax/8h），返回 `{viewer,username,nickname,expiresAt,redirectTo}`；400 输入异常 / 401 凭据错误 / 403 非 demo 模式 |
+| `GET /api/demo-auth/session?viewer=a` | 校验槽位会话；未登录/过期/撤销/槽位不匹配 401 |
+| `POST /api/demo-auth/logout` `{viewer}` | 撤销对应槽位会话并清除该 Cookie；不影响其他槽位与管理员会话；重复退出成功 |
+
+### 安全与隐私（`/api/v2`，v2.6；语义与权限矩阵详见 docs/SAFETY-PRIVACY.md）
+
+| 接口 | 要点 |
+|---|---|
+| `GET /privacy/overview` / `GET /privacy/grants` | 本人授权/屏蔽/举报计数与授权清单 |
+| `POST /privacy/grants/revoke-all` `{connectionId,expectedActive}` | 撤销发给某人的全部授权（只撤本人发出的） |
+| `POST /privacy/exports` `{scopes[]}` → `GET /privacy/exports/{id}` / `.../download` | 本人数据包（24h 有效，下载再鉴权；不含 salt/他人草稿/后台意见） |
+| `POST /privacy/deletions` `{password,confirmation,endBindingConsent}` | 注销：再认证 + 输入“注销” + 明确同意结束绑定；返回一次性受限查询凭据 |
+| `GET /privacy/deletions/{id}/credential?credential=` | 独立受限凭据查询注销状态（不依赖用户会话） |
+| `GET /safety/target-context?sourceType=&sourceId=` | 来源（bell/connection/relationship）→ 脱敏标签 + 短期 targetRef（7 天，服务器绑定调用者） |
+| `GET/POST /safety/blocks`、`POST /safety/blocks/{id}/revoke` | 屏蔽级联 / 解除（expectedRevision；解除不恢复旧连接与授权） |
+| `GET/POST /safety/reports`、`GET /safety/reports/{id}` | 举报（10–1000 字；5 次/24h；同源同因复用）；详情不含内部意见与目标身份 |
+| `POST /safety/reports/{id}/supplements \| withdraw \| appeals` | 补充（5–1000 字）/ 撤回（仅 submitted）/ 一次复核（结案后 7 天） |
 
 ### 视图（GET）
 
@@ -95,6 +117,6 @@ n = s + f；eligible = s + f + pending（waived 排除）
 
 ## 使用边界
 
-- viewer 是本地演示身份切换，不是登录认证；内存状态单进程、重启清空。
+- v2.6 起用户接口需 Demo 登录会话（viewer 只选择槽位，身份由 Cookie 会话确认）；内存状态单进程、重启清空（会话表同样重启失效，重新登录即可）。
 - 演示台、时间推进、审核模拟仅 APP_MODE=demo 开放，正式环境服务端拒绝。
 - 真实链模式（CHAIN_MODE≠preview）需要 CHAIN_RPC_URL 与合约地址，缺失时报配置错误而非假成功。

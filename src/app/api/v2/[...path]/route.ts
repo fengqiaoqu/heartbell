@@ -1,9 +1,11 @@
 // /api/v2 统一入口（计划书 10.3 节）。旧 /api/demo 保留为 legacy，仅限 demo 模式。
-// 会话：P0 使用 viewer=a|b 本地演示身份（服务端仍然执行全部权限校验）；
-// live 模式必须替换为服务端可信会话，不信任请求中的身份参数。
+// v2.6：普通用户接口先校验 Demo 会话（hb_demo_a / hb_demo_b 双槽位），服务器确认 viewer
+// 后才执行业务（含 sweep）——不再把 viewer 参数当作身份证明。
+// admin/* 演示台路由保持原有 APP_MODE=demo 边界（requireDemoMode），不套用户会话。
 import { NextResponse } from "next/server";
 import { getV2State, runModes, sweepAndNow } from "../../../../lib/server/v2/registry";
 import { ApiError } from "../../../../lib/server/v2/errors";
+import { assertSameOrigin, requireDemoSession } from "../../../../lib/server/demo-auth";
 import { resolveDemoUser } from "../../../../lib/server/v2/session";
 import * as meet from "../../../../lib/server/v2/services/meet";
 import * as rel from "../../../../lib/server/v2/services/relationship";
@@ -13,6 +15,8 @@ import * as plan from "../../../../lib/server/v2/services/plan";
 import * as anchor from "../../../../lib/server/v2/services/anchor";
 import * as admin from "../../../../lib/server/v2/services/admin";
 import { buildStateView } from "../../../../lib/server/v2/services/view";
+import * as safety from "../../../../lib/server/v2/services/safety";
+import * as privacy from "../../../../lib/server/v2/services/privacy";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +115,7 @@ const routes: Record<string, Handler> = {
     }
     return { ok: true, updated };
   },
-  // ---------- 演示台（仅 APP_MODE=demo） ----------
+  // ---------- 演示台（仅 APP_MODE=demo；独立演示工具，不套用户会话） ----------
   "GET /admin/snapshot": () => admin.adminSnapshot(getV2State()),
   "POST /admin/reset": () => { admin.adminReset(); return { ok: true }; },
   "POST /admin/advance-time": ({ body }) => ({ ok: true, virtualNow: admin.adminAdvanceTime(body.ms) }),
@@ -119,16 +123,103 @@ const routes: Record<string, Handler> = {
   "POST /admin/claims/decision": ({ body }) => { admin.adminDecideClaim(getV2State(), body.claimId, body); return { ok: true }; },
   "POST /admin/exception/resolve": ({ body }) => { admin.adminResolveException(getV2State(), body.planId, body.decision); return { ok: true }; },
   "POST /admin/trust-dispute/resolve": ({ body }) => { admin.adminResolveTrustDispute(getV2State(), body.promiseId, body.finalResult, body.subjectUserId); return { ok: true }; },
+  // ---------- 安全与隐私（v2.6） ----------
+  "GET /privacy/overview": ({ viewer }) => { const { state, now } = sweepAndNow(); return privacy.privacyOverview(state, resolveDemoUser(state, viewer), now); },
+  "GET /privacy/grants": ({ viewer }) => { const { state, now } = sweepAndNow(); return privacy.myGrants(state, resolveDemoUser(state, viewer), now); },
+  "POST /privacy/grants/revoke-all": ({ viewer, body }) => {
+    const { state, now } = sweepAndNow();
+    return privacy.revokeAllGrantsFor(state, resolveDemoUser(state, body.viewer ?? viewer), body.connectionId, body.expectedActive, now);
+  },
+  "POST /privacy/exports": ({ viewer, body }) => { const { state, now } = sweepAndNow(); return privacy.createExport(state, resolveDemoUser(state, body.viewer ?? viewer), body.scopes, now); },
+  "GET /privacy/exports/:id": ({ viewer, params }) => { const { state } = sweepAndNow(); return privacy.exportDetail(state, resolveDemoUser(state, viewer), params[2]); },
+  "GET /privacy/exports/:id/download": ({ viewer, params }) => { const { state } = sweepAndNow(); return privacy.downloadExport(state, resolveDemoUser(state, viewer), params[2]); },
+  "POST /privacy/deletions": ({ viewer, body }) => {
+    const { state, now } = sweepAndNow();
+    return privacy.requestDeletion(state, resolveDemoUser(state, body.viewer ?? viewer), {
+      password: body.password, confirmation: body.confirmation, endBindingConsent: body.endBindingConsent,
+    }, now);
+  },
+  // 独立受限凭据查询：不依赖用户会话（注销后原会话已全部撤销，只能用凭据查结果）。
+  "GET /privacy/deletions/:id/credential": ({ url, params }) => privacy.deletionStatusByCredential(getV2State(), params[2], url.searchParams.get("credential")),
+  "GET /safety/target-context": ({ viewer, url }) => {
+    const { state, now } = sweepAndNow();
+    return safety.targetContext(state, resolveDemoUser(state, viewer), url.searchParams.get("sourceType"), url.searchParams.get("sourceId"), now);
+  },
+  "GET /safety/blocks": ({ viewer }) => { const { state } = sweepAndNow(); return safety.listBlocks(state, resolveDemoUser(state, viewer)); },
+  "POST /safety/blocks": ({ viewer, body }) => { const { state, now } = sweepAndNow(); return safety.blockTarget(state, resolveDemoUser(state, body.viewer ?? viewer), body.targetRef, now); },
+  "POST /safety/blocks/:id/revoke": ({ viewer, body, params }) => {
+    const { state, now } = sweepAndNow();
+    return safety.unblockTarget(state, resolveDemoUser(state, body.viewer ?? viewer), params[2], body.expectedRevision, now);
+  },
+  "GET /safety/reports": ({ viewer }) => { const { state } = sweepAndNow(); return safety.listReports(state, resolveDemoUser(state, viewer)); },
+  "POST /safety/reports": ({ viewer, body }) => {
+    const { state, now } = sweepAndNow();
+    return safety.createReport(state, resolveDemoUser(state, body.viewer ?? viewer), {
+      targetRef: body.targetRef, reason: body.reason, description: body.description, blockTarget: body.blockTarget,
+    }, now);
+  },
+  "GET /safety/reports/:id": ({ viewer, params }) => { const { state } = sweepAndNow(); return safety.reportDetail(state, resolveDemoUser(state, viewer), params[2]); },
+  "POST /safety/reports/:id/supplements": ({ viewer, body, params }) => {
+    const { state, now } = sweepAndNow();
+    return safety.supplementReport(state, resolveDemoUser(state, body.viewer ?? viewer), params[2], body.text, body.expectedRevision, now);
+  },
+  "POST /safety/reports/:id/withdraw": ({ viewer, body, params }) => {
+    const { state, now } = sweepAndNow();
+    return safety.withdrawReport(state, resolveDemoUser(state, body.viewer ?? viewer), params[2], body.expectedRevision, now);
+  },
+  "POST /safety/reports/:id/appeals": ({ viewer, body, params }) => {
+    const { state, now } = sweepAndNow();
+    return safety.appealReport(state, resolveDemoUser(state, body.viewer ?? viewer), params[2], body.reason, body.expectedRevision, now);
+  },
 };
+
+// 无需用户会话的例外路由（演示台 / 受限凭据查询）。
+function routeExemptFromSession(key: string, path: string[]): boolean {
+  if (key.startsWith("GET /admin/") || key.startsWith("POST /admin/")) return true;
+  // 注销结果查询使用独立受限凭据（注销后原会话已撤销）。
+  if (path.length === 4 && path[0] === "privacy" && path[1] === "deletions" && path[3] === "credential") return true;
+  return false;
+}
+
+// 参数化路由解析（v2.6 安全与隐私新增 /privacy/...、/safety/...）。
+function resolveRoute(key: string, path: string[]): Handler | undefined {
+  const direct = routes[key];
+  if (direct) return direct;
+  if (path.length === 3 && path[0] === "privacy" && path[1] === "exports") {
+    return routes["GET /privacy/exports/:id"];
+  }
+  if (path.length === 4 && path[0] === "privacy" && path[1] === "exports" && path[3] === "download") {
+    return routes["GET /privacy/exports/:id/download"];
+  }
+  if (path.length === 4 && path[0] === "privacy" && path[1] === "deletions" && path[3] === "credential") {
+    return routes["GET /privacy/deletions/:id/credential"];
+  }
+  if (path.length === 3 && path[0] === "safety" && path[1] === "reports") {
+    return key.startsWith("GET ") ? routes["GET /safety/reports/:id"] : undefined;
+  }
+  if (path.length === 4 && path[0] === "safety" && path[1] === "reports") {
+    if (path[3] === "supplements") return routes["POST /safety/reports/:id/supplements"];
+    if (path[3] === "withdraw") return routes["POST /safety/reports/:id/withdraw"];
+    if (path[3] === "appeals") return routes["POST /safety/reports/:id/appeals"];
+  }
+  if (path.length === 4 && path[0] === "safety" && path[1] === "blocks" && path[3] === "revoke") {
+    return routes["POST /safety/blocks/:id/revoke"];
+  }
+  return undefined;
+}
 
 export async function GET(request: Request, context: { params: Promise<{ path: string[] }> }) {
   try {
     const { path } = await context.params;
     const url = new URL(request.url);
     const key = `GET /${(path ?? []).join("/")}`;
-    const handler = routes[key];
+    const handler = resolveRoute(key, path ?? []);
     if (!handler) return fail(new ApiError(404, "NOT_FOUND", `未知接口：${key}`));
-    return ok(handler({ viewer: url.searchParams.get("viewer"), body: {}, params: path ?? [], url }));
+    let viewer: string | null = url.searchParams.get("viewer");
+    if (!routeExemptFromSession(key, path ?? [])) {
+      viewer = requireDemoSession(request.headers.get("cookie"), viewer);
+    }
+    return ok(handler({ viewer, body: {}, params: path ?? [], url }));
   } catch (error) {
     return fail(error as Error);
   }
@@ -136,6 +227,7 @@ export async function GET(request: Request, context: { params: Promise<{ path: s
 
 export async function POST(request: Request, context: { params: Promise<{ path: string[] }> }) {
   try {
+    assertSameOrigin(request);
     const { path } = await context.params;
     const url = new URL(request.url);
     let body: Record<string, unknown>;
@@ -143,9 +235,20 @@ export async function POST(request: Request, context: { params: Promise<{ path: 
     catch { body = {}; }
     if (!body || typeof body !== "object" || Array.isArray(body)) return fail(new ApiError(400, "BAD_REQUEST", "请求必须为对象"));
     const key = `POST /${(path ?? []).join("/")}`;
-    const handler = routes[key];
+    const handler = resolveRoute(key, path ?? []);
     if (!handler) return fail(new ApiError(404, "NOT_FOUND", `未知接口：${key}`));
-    return ok(handler({ viewer: (body.viewer as string) ?? url.searchParams.get("viewer"), body, params: path ?? [], url }));
+    const queryViewer = url.searchParams.get("viewer");
+    const bodyViewer = typeof body.viewer === "string" ? body.viewer : null;
+    // body 与 query 同时携带不同 viewer 时拒绝，不悄悄选择其中一个。
+    let viewer: string | null;
+    if (bodyViewer !== null && queryViewer !== null && bodyViewer !== queryViewer) {
+      return fail(new ApiError(400, "BAD_REQUEST", "请求中的 viewer 参数冲突"));
+    }
+    viewer = bodyViewer ?? queryViewer;
+    if (!routeExemptFromSession(key, path ?? [])) {
+      viewer = requireDemoSession(request.headers.get("cookie"), viewer);
+    }
+    return ok(handler({ viewer, body, params: path ?? [], url }));
   } catch (error) {
     return fail(error as Error);
   }

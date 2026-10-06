@@ -12,6 +12,7 @@ import { AttachmentList, AttachmentUploader, type UploadedAttachment } from "../
 import type { DiaryDetailDto, TimelineItemDto, V2StateView } from "../../lib/domain/view-dtos";
 import { spaceThemeLabels, type SpaceSettings, type SpaceTheme } from "../../lib/domain/v2-types";
 import { EvidenceDrawer } from "./evidence-drawer";
+import { ReportBlockDialog } from "../privacy/safety-center";
 import type { TabId } from "./app-shell";
 
 type Filter = "all" | "diary" | "promise" | "milestone";
@@ -30,6 +31,7 @@ export function UsTab({ view, user, busy, act, switchTab }: {
   const [promiseCreating, setPromiseCreating] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
   const [spaceOpen, setSpaceOpen] = useState(false);
+  const [safetyOpen, setSafetyOpen] = useState(false); // v2.6：关系内举报/屏蔽入口
   const [evidence, setEvidence] = useState<{ anchor: TimelineItemDto["anchor"]; business: string; recordId?: string } | null>(null);
 
   const rel = view.us.relationship;
@@ -136,11 +138,17 @@ export function UsTab({ view, user, busy, act, switchTab }: {
       <p className="muted">进行中的相守计划会按规则独立处理（复核或进入失效等待），不会锁住这次退出。</p>
       <Button className="danger" disabled={busy} onClick={async () => { if (await act("relationships/end", { relationshipId: rel.id })) setEndOpen(false); }}>结束当前绑定</Button>
       <Button className="ghost" onClick={() => setEndOpen(false)}>继续这段关系</Button>
+      <h3 style={{ marginTop: 16 }}>举报与屏蔽</h3>
+      <p className="muted">屏蔽不会自动结束当前绑定；两种动作相互独立，均无需对方同意或审核。</p>
+      <Button className="secondary" onClick={() => { setEndOpen(false); setSafetyOpen(true); }}>举报 / 屏蔽对方</Button>
     </Modal>}
 
     <EvidenceDrawer open={!!evidence} onClose={() => setEvidence(null)} anchor={evidence?.anchor ?? null}
       businessStatus={evidence?.business ?? ""} sourceLabel="双方确认（应用内）"
       onExport={evidence?.recordId ? () => exportEvidence(evidence.recordId!, user) : undefined} />
+
+    {safetyOpen && rel && <ReportBlockDialog open onClose={() => setSafetyOpen(false)} viewer={view.me.id}
+      sourceType="relationship" sourceId={rel.id} hasBinding />}
   </>;
 }
 

@@ -8,8 +8,8 @@ import { trustReasonLabels } from "../../../domain/score";
 import { planRulesSummary } from "../../../domain/plan-rules";
 import { now as v2now, runModes, sweep } from "../registry";
 import { anchorEvidenceOf } from "./anchor";
-import { findActiveGrant } from "./relationship";
 import { currentVersion } from "./diary";
+import { blockedEitherWay, canReadShared, notificationVisible, visibleDiaryVersions } from "../privacy-policy";
 import type { KnowConnectionDto, TimelineItemDto, V2StateView } from "../../../domain/view-dtos";
 import type { AnchorJob, CommitmentPlan, PromiseDoc } from "../../../domain/v2-types";
 
@@ -50,8 +50,11 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
   const closedWith = new Set(state.connections.filter(c => c.closed && c.members.includes(viewer)).map(c => c.members[0] === viewer ? c.members[1] : c.members[0]));
   // 雷达互相可见、连接未关闭、双方都没有有效关系（MEET-02/MEET-06）；
   // 最小资料仅含一句话介绍，不含其他长期信息。
+  // v2.6：被屏蔽的双方从候选中互相不可见；已注销用户不再出现。
   const partnerRadar = partner ? state.radar.get(partner.id) : null;
-  const nearbyVisible = (radar?.active && partner && partnerRadar?.active && !closedWith.has(partner.id) && !myRel && !activeRelationshipOf(state, partner.id))
+  const nearbyVisible = (radar?.active && partner && partnerRadar?.active && !closedWith.has(partner.id)
+    && !blockedEitherWay(state, viewer, partner.id) && !myRel && !activeRelationshipOf(state, partner.id)
+    && partner.disabledAt === null)
     ? [{ userId: partner.id, traits: partnerRadar!.traits.map(t => ({ category: t.category, value: t.value })), bio: partner.profile.bio }]
     : [];
   const myBells = state.bells.filter(b => b.from === viewer || b.to === viewer);
@@ -62,9 +65,11 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
   const connections: KnowConnectionDto[] = state.connections.filter(c => c.members.includes(viewer)).map(conn => {
     const otherId = conn.members[0] === viewer ? conn.members[1] : conn.members[0];
     const other = state.users.get(otherId);
-    const echoed = !conn.closed; // 连接本身即已回响
-    const contactGrant = findActiveGrant(state, otherId, viewer, "profile_contact", now);
-    const trustGrantActive = findActiveGrant(state, otherId, viewer, "trust_summary", now);
+    // v2.6：连接关闭（含屏蔽级联关闭）后不再透出对方档案；屏蔽期间同样不透出。
+    const pairBlocked = blockedEitherWay(state, viewer, otherId) || (other?.disabledAt ?? 0) > 0;
+    const echoed = !conn.closed && !pairBlocked; // 连接本身即已回响
+    const contactGrant = canReadShared(state, otherId, viewer, "profile_contact", now);
+    const trustGrantActive = canReadShared(state, otherId, viewer, "trust_summary", now);
     const trustGrantAny = state.shareGrants.find(g => g.ownerId === otherId && g.audienceId === viewer && g.scope === "trust_summary");
     const snapshot = currentTrustSnapshot(state, otherId);
     let trustStatus: "grantable" | "granted" | "revoked" | "expired" = "grantable";
@@ -109,12 +114,11 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
 
   const relDiaries = myRel ? state.diaries.filter(d => d.relationshipId === myRel.id) : [];
   const timeline: TimelineItemDto[] = relDiaries
-    .filter(d => {
-      const v = currentVersion(d);
-      return v.visibility !== "draft" || v.author === viewer; // 私人草稿仅作者可见
-    })
+    .filter(d => visibleDiaryVersions(state, d, viewer).length > 0)
     .map(d => {
-      const v = currentVersion(d);
+      // v2.6：取调用者可见的最新版本（屏蔽后仅共同确认归档可见；私人草稿仅作者）。
+      const visible = visibleDiaryVersions(state, d, viewer);
+      const v = visible[visible.length - 1] ?? currentVersion(d);
       const needsMe = v.status === "awaiting" && !v.confirmations[viewer];
       const confirmCount = Object.keys(v.confirmations).length;
       return {
@@ -127,7 +131,7 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
         statusText: v.status === "confirmed" ? "双方已确认" : v.status === "awaiting" ? (needsMe ? "待你确认" : "待对方确认") : v.status === "returned" ? "已退回" : v.status === "withdrawn" ? "已撤回" : "私人草稿",
         needsMyAction: needsMe,
         anchor: anchorView(state, state.anchorJobs.find(j => j.recordId === d.id), modes),
-        confirmSummary: `${confirmCount}/2 已确认${d.versions.length > 1 ? ` · 版本 ${v.version}` : ""}`,
+        confirmSummary: `${confirmCount}/2 已确认${visible.length > 1 ? ` · 版本 ${v.version}` : ""}`,
       };
     });
   const relPromises = myRel ? state.promises.filter(p => p.relationshipId === myRel.id && p.status !== "returned") : [];
@@ -188,7 +192,7 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
       anchorSubmitEnabled: state.featureConfig.anchorSubmitEnabled,
       configVersion: state.featureConfig.version,
     },
-    notifications: unreadNotificationsOf(state, viewer).slice(-30).reverse(),
+    notifications: unreadNotificationsOf(state, viewer).filter(n => notificationVisible(state, viewer, n)).slice(-30).reverse(),
     me: {
       id: viewer,
       profile: user.profile,

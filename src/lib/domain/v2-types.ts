@@ -58,6 +58,7 @@ export interface V2User {
   profile: V2Profile;
   adultDeclared: boolean;
   verificationLevels: VerificationLevel[];
+  disabledAt: number | null; // v2.6：注销账号后停用（登录与会话立即失效）
 }
 
 // ---------- 相遇 ----------

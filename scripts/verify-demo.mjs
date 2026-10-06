@@ -6,8 +6,19 @@ const walletA = "0x1111111111111111111111111111111111111111";
 const walletB = "0x2222222222222222222222222222222222222222";
 const txHashA = "0x" + "ab".repeat(32);
 const txHashB = "0x" + "cd".repeat(32);
+// v2.6：旧 /api/demo 用户接口同样需要 Demo 会话——登录 a/b 携带双槽位 Cookie。
+async function demoLogin(viewer) {
+  const password = { a: "HeartbellA2026!", b: "HeartbellB2026!" }[viewer];
+  const res = await fetch(`${base}/api/demo-auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json", Origin: base },
+    body: JSON.stringify({ username: viewer, password }),
+  });
+  if (!res.ok) throw new Error(`登录 ${viewer} 失败：${res.status}`);
+  return (res.headers.get("set-cookie") ?? "").split(";")[0];
+}
+const CK = `${await demoLogin("a")}; ${await demoLogin("b")}`;
 async function call(viewer, action, expected = 200) {
-  const response = await fetch(`${base}/api/demo${action ? "" : `?viewer=${viewer}`}`, action ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ viewer, ...action }) } : undefined);
+  const response = await fetch(`${base}/api/demo${action ? "" : `?viewer=${viewer}`}`, action ? { method: "POST", headers: { "Content-Type": "application/json", Cookie: CK, Origin: base }, body: JSON.stringify({ viewer, ...action }) } : { headers: { Cookie: CK } });
   const data = await response.json();
   assert.equal(response.status, expected, JSON.stringify(data));
   return data.data;

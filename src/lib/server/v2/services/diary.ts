@@ -6,6 +6,7 @@ import { badRequest, conflict, forbidden, notFound, versionConflict } from "../e
 import { MAX_SCORING_PER_DAY, MAX_SCORING_PROMISES } from "../../../domain/score";
 import { enqueueAnchor } from "./anchor";
 import { resolveAttachments } from "../attachments";
+import { assertPairCanInteract, visibleDiaryVersions } from "../privacy-policy";
 import { refreshFor } from "./trust";
 import type { AnchorEvidence, AnchorJob, DiaryDoc, PromiseDoc, PromiseResolutionResult, RecordVersion } from "../../../domain/v2-types";
 import { RELATIONSHIP_TERMS_VERSION } from "../../../domain/relationship";
@@ -91,6 +92,7 @@ function parseDateNotFuture(value: unknown, now: number): string {
 export function createDiary(state: V2State, viewer: string, input: Record<string, unknown>, now: number): string {
   const rel = activeRelationshipOf(state, viewer);
   if (!rel) throw forbidden("确认关系后才能共同写日记");
+  assertPairCanInteract(state, rel.members[0], rel.members[1]); // v2.6：屏蔽期间冻结新的共享写入
   const kind = input.kind === "milestone" ? "milestone" : "diary";
   const date = parseDateNotFuture(input.date, now);
   const title = typeof input.title === "string" ? input.title.trim() : "";
@@ -174,6 +176,8 @@ export function shareDraft(state: V2State, viewer: string, diaryId: unknown, now
 // 确认绑定具体版本：只对当前版本有效。
 export function confirmDiaryVersion(state: V2State, viewer: string, diaryId: unknown, now: number): void {
   const doc = findDiary(state, viewer, diaryId);
+  const rel = state.relationships.find(r => r.id === doc.relationshipId)!;
+  assertPairCanInteract(state, rel.members[0], rel.members[1]); // v2.6：屏蔽期间冻结确认
   const version = currentVersion(doc);
   if (version.visibility === "draft") throw forbidden("私人草稿不需要对方确认");
   if (version.status !== "awaiting") throw conflict("VERSION_STATE", "这一页当前状态不可确认");
@@ -226,9 +230,22 @@ export function anchorDiary(state: V2State, viewer: string, diaryId: unknown, no
   doc.anchoredVersion = version.version;
 }
 
+// v2.6：详情按版本裁剪 —— 私人草稿、对方撤回的版本、屏蔽/结束后未共同确认的共享版本
+// 不再返回（读取矩阵 4.1；DTO 不携带原始 doc）。存证信息绑定已确认版本，双方归档可读。
 export function getDiaryDetail(state: V2State, viewer: string, diaryId: unknown) {
   const doc = findDiary(state, viewer, diaryId);
-  return doc;
+  const versions = visibleDiaryVersions(state, doc, viewer);
+  return {
+    id: doc.id,
+    currentVersion: versions.length ? versions[versions.length - 1].version : 0,
+    versions: versions.map(v => ({
+      version: v.version, kind: v.kind, date: v.date, title: v.title, body: v.body,
+      attachments: v.attachments, author: v.author, status: v.status,
+      confirmations: v.confirmations, returnedBy: v.returnedBy, returnedNote: v.returnedNote,
+    })),
+    anchor: doc.anchor,
+    anchoredVersion: doc.anchoredVersion,
+  };
 }
 
 // ---------- 承诺 ----------

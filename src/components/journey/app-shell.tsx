@@ -5,13 +5,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhoneFrame, Button, ErrorBanner, Avatar, BellIcon, BookIcon, ChatIcon, GiftIcon, HeartbellLogo } from "../ui";
 import { Modal } from "../modal";
-import { fetchState, friendlyError, postV2 } from "../../lib/client/v2-api";
+import { fetchState, friendlyError, postV2, V2ApiError } from "../../lib/client/v2-api";
 import type { NotificationDto, V2StateView } from "../../lib/domain/view-dtos";
 import { MeetTab } from "./meet-tab";
 import { KnowTab } from "./know-tab";
 import { UsTab } from "./us-tab";
 import { FutureTab } from "./future-tab";
 import { MeDrawer } from "./me-drawer";
+import { ReportBlockDialog } from "../privacy/safety-center";
 
 export type TabId = "meet" | "know" | "us" | "future";
 const tabs: { id: TabId; text: string; Icon: () => React.JSX.Element }[] = [
@@ -22,7 +23,7 @@ const tabs: { id: TabId; text: string; Icon: () => React.JSX.Element }[] = [
 ];
 const phrases = ["想认识你。", "想和你聊一聊。", "想一起喝杯咖啡。"];
 
-export function JourneyShell({ user }: { user: "a" | "b" }) {
+export function JourneyShell({ user }: { user: "a" | "b" | "c" }) {
   const [view, setView] = useState<V2StateView | null>(null);
   const [tab, setTab] = useState<TabId>("meet");
   const [error, setError] = useState("");
@@ -30,8 +31,10 @@ export function JourneyShell({ user }: { user: "a" | "b" }) {
   const [meOpen, setMeOpen] = useState(false);
   const [ringOpen, setRingOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
+  const [reportBellOpen, setReportBellOpen] = useState(false); // v2.6：举报匿名铃声来源
   const [message, setMessage] = useState(phrases[0]);
   const [postponed, setPostponed] = useState<string[]>([]);
+  const [sessionLost, setSessionLost] = useState(false); // v2.6：会话失效后停止轮询并回登录页
   const seenEcho = useRef(false);
   const scroll = useRef<HTMLDivElement>(null);
 
@@ -47,14 +50,34 @@ export function JourneyShell({ user }: { user: "a" | "b" }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    setView(await fetchState(user));
+    // v2.6：401 = 会话失效（未登录/过期/退出）——停止轮询、清空业务视图并回登录页；
+    // 403 业务拒绝仍按原错误处理，不误当退出。
+    try {
+      setView(await fetchState(user));
+    } catch (e) {
+      if (e instanceof V2ApiError && e.status === 401) {
+        setSessionLost(true);
+        setView(null);
+        return;
+      }
+      throw e;
+    }
   }, [user]);
   useEffect(() => {
+    if (sessionLost) return; // 已失效不再轮询
     const poll = () => refresh().catch(e => setError(friendlyError(e)));
     poll();
     const timer = setInterval(poll, 1200);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, sessionLost]);
+  // 会话失效后 1.2 秒自动回对应登录页（保留当前栏目），期间显示明确提示。
+  useEffect(() => {
+    if (!sessionLost) return;
+    const timer = setTimeout(() => {
+      window.location.replace(`/login?account=${user}&tab=${tab}`);
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [sessionLost, user, tab]);
   // 回响成功后引导到“了解”
   useEffect(() => {
     if (view?.know.hasAnyEcho && !seenEcho.current) {
@@ -103,7 +126,7 @@ export function JourneyShell({ user }: { user: "a" | "b" }) {
 
   return <PhoneFrame>
     <header className="app-header">
-      <div className="brand"><HeartbellLogo size={32} /><span>心动铃铛<small>{user === "a" ? "小铃" : "阿响"} · 演示窗口 {user.toUpperCase()}</small></span></div>
+      <div className="brand"><HeartbellLogo size={32} /><span>心动铃铛<small>{view?.me.profile.nickname ?? "…"} · 演示窗口 {user.toUpperCase()}</small></span></div>
       <div className="header-actions">
         <button className="bell-button" aria-label={`站内提醒（${unread.length} 条未读）`} onClick={() => setNoticeOpen(true)}>
           <BellIcon />
@@ -123,7 +146,10 @@ export function JourneyShell({ user }: { user: "a" | "b" }) {
         <span>🔔 你有 <b>{usPendingCount}</b> 项待确认的内容（{view.us.incomingInvite ? "关系邀请 · " : ""}日记或承诺）</span>
         <button className="text-button" onClick={() => switchTab("us")}>去处理</button>
       </div>}
-      {!view ? <div className="empty-state">正在连接演示服务……</div> : <>
+      {sessionLost ? <div className="empty-state" role="status">
+        <p>登录已失效，正在返回登录页……</p>
+        <button className="text-button" onClick={() => window.location.replace(`/login?account=${user}&tab=${tab}`)}>立即重新登录</button>
+      </div> : !view ? <div className="empty-state">正在连接演示服务……</div> : <>
         {tab === "meet" && <MeetTab view={view} user={user} busy={busy} act={act} switchTab={switchTab} onRing={() => setRingOpen(true)} onNeedAdult={() => setMeOpen(true)} />}
         {tab === "know" && <KnowTab view={view} user={user} busy={busy} act={act} switchTab={switchTab} />}
         {tab === "us" && <UsTab view={view} user={user} busy={busy} act={act} switchTab={switchTab} />}
@@ -188,6 +214,11 @@ export function JourneyShell({ user }: { user: "a" | "b" }) {
       <Button disabled={busy} onClick={() => act("respond", { bellId: incoming.id, status: "accepted" })}>我也想认识 TA</Button>
       <Button className="secondary" disabled={busy} onClick={() => act("respond", { bellId: incoming.id, status: "dismissed" })}>让铃声消散</Button>
       <button className="text-button" onClick={() => setPostponed(p => [...p, incoming.id])}>稍后决定</button>
+      {/* v2.6：未揭晓对象举报入口 —— 举报前不显示对方昵称/头像 */}
+      <button className="text-button" style={{ color: "var(--danger)" }} onClick={() => setReportBellOpen(true)}>举报此铃声</button>
     </Modal>}
+
+    {incoming && reportBellOpen && <ReportBlockDialog open onClose={() => setReportBellOpen(false)} viewer={user}
+      sourceType="bell" sourceId={incoming.id} hasBinding={false} />}
   </PhoneFrame>;
 }

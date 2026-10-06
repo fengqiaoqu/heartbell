@@ -1,0 +1,64 @@
+/* v2.6 登录页（局部作用，不影响其他页面）：居中卡片约 420px，360px 手机宽无横向滚动。 */
+.login-page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 28px 24px 20px;
+  text-align: center;
+}
+.login-logo { display: flex; justify-content: center; margin-bottom: 6px; }
+.login-card h1 { font-size: 24px; margin: 6px 0 2px; }
+.login-card form { text-align: left; margin-top: 18px; }
+.login-card input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-button);
+  background: var(--paper);
+}
+.login-account-hints { display: flex; gap: 8px; margin-top: 8px; }
+.chip-button {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.chip-button.chosen { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+.login-password-row { display: flex; align-items: center; gap: 6px; }
+.login-password-row input { flex: 1; }
+.login-error { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
+.login-submit {
+  width: 100%;
+  margin-top: 14px;
+  padding: 13px 16px;
+  border: none;
+  border-radius: var(--radius-button);
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.login-submit:disabled { opacity: 0.6; cursor: default; }
+.login-active {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--brand-soft);
+  font-size: 13px;
+}
+.login-active-actions { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 6px; }
+.login-continue { font-weight: 600; }

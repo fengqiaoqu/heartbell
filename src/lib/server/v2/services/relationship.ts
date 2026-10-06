@@ -9,6 +9,7 @@ import { ageCohorts, spaceThemeLabels, type ShareScope, type SpaceSettings, type
 import { defaultAvatarIds, MAX_UPLOAD_AVATAR_LENGTH } from "../../../domain/avatars";
 import { HOUR } from "../../../domain/relationship";
 import { enqueueAnchor } from "./anchor";
+import { assertPairCanInteract, revokeGrantsBetween } from "../privacy-policy";
 
 function connectionOf(state: V2State, viewer: string): { id: string; members: [string, string] } | null {
   return state.connections.find(c => c.members.includes(viewer) && !c.closed) ?? null;
@@ -19,6 +20,7 @@ export function proposeRelationship(state: V2State, viewer: string, now: number)
   const conn = connectionOf(state, viewer);
   if (!conn) throw forbidden("需要先互相回响，才能邀请建立关系");
   const partner = conn.members[0] === viewer ? conn.members[1] : conn.members[0];
+  assertPairCanInteract(state, viewer, partner); // v2.6：屏蔽期间拒绝新邀请
   if (activeRelationshipOf(state, viewer)) throw conflict("ALREADY_BOUND", "你已有进行中的关系绑定");
   if (activeRelationshipOf(state, partner)) throw conflict("ALREADY_BOUND", "对方已有进行中的关系绑定");
   if (pendingInviteFor(state, viewer) || pendingInviteFor(state, partner)) {
@@ -94,6 +96,8 @@ export function endRelationship(state: V2State, viewer: string, relId: unknown, 
   rel.endedAt = now;
   rel.endedBy = viewer;
   rel.archiveReason = typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 100) : null;
+  // v2.6：结束绑定同时撤销双方全部资料授权（退出无需对方批准，旧授权立即失效）。
+  revokeGrantsBetween(state, rel.members[0], rel.members[1], now, "relationship_ended");
   // 结束事件：退出成员本人授权，单方事实，不伪造另一方同意。
   enqueueAnchor(state, "relationship_ended", rel.id, 1, {
     recordType: "relationship_ended", recordId: rel.id, version: 1,
@@ -171,6 +175,9 @@ export function createShareGrant(state: V2State, viewer: string, scope: unknown,
   const conn = state.connections.find(c => c.members.includes(viewer) && !c.closed);
   if (!conn) throw forbidden("授权对象必须是已回响的连接");
   const audience = conn.members[0] === viewer ? conn.members[1] : conn.members[0];
+  // v2.6：被屏蔽或对方已注销时拒绝新授权（掩护性错误，不泄露具体状态）。
+  assertPairCanInteract(state, viewer, audience);
+  if (state.users.get(audience)?.disabledAt) throw forbidden("当前无法继续此操作。");
   // 重复授权返回原凭证（幂等），刷新有效期
   const existing = state.shareGrants.find(g =>
     g.ownerId === viewer && g.audienceId === audience && g.scope === scope && !g.revokedAt);

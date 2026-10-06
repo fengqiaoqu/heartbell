@@ -1,9 +1,11 @@
 "use client";
 // 了解（计划书第 4 节 / UI-05/06）：意向、应用内状态、履约参考、联系方式独立授权、邀请关系。
+// v2.6：连接卡片新增「举报 / 屏蔽」对象菜单（举报前不揭晓匿名身份）。
 import { useState } from "react";
 import { Button, Card, Chip, EmptyState, StageArt, zhDate, countdownText } from "../ui";
 import { Modal } from "../modal";
 import { AvatarZoom } from "../avatar-zoom";
+import { ReportBlockDialog } from "../privacy/safety-center";
 import type { KnowConnectionDto, V2StateView } from "../../lib/domain/view-dtos";
 import { orientationDisplay } from "../../lib/domain/v2-types";
 import type { TabId } from "./app-shell";
@@ -16,6 +18,7 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
   const [openId, setOpenId] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState<string | null>(null);
+  const [safetyOpen, setSafetyOpen] = useState(false);
   const connections = view.know.connections.filter(c => !c.closed);
   const closedOnes = view.know.connections.filter(c => c.closed);
 
@@ -66,6 +69,7 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
         <span>{conn.appBindingStatus === "none" ? <Chip tone="success">暂无有效恋爱绑定</Chip> : conn.appBindingStatus === "active" ? <Chip tone="warning">已在应用内绑定</Chip> : <Chip tone="warning">应用内已婚标记</Chip>}</span>
       </div>
       <p className="muted">应用内无绑定不等于现实单身；有绑定也不代表现实已婚。性取向与出生年代为对方本人填写，仅作了解参考。</p>
+      <button className="text-button" onClick={() => setSafetyOpen(true)}>举报 / 屏蔽此人</button>
     </Card>
 
     <TrustCard conn={conn} viewerId={view.me.id} busy={busy} act={act} />
@@ -112,6 +116,9 @@ export function KnowTab({ view, user, busy, act, switchTab }: {
       <Button className="danger" disabled={busy} onClick={async () => { if (await act("connection-close", { connectionId: closeOpen })) setCloseOpen(null); }}>确认关闭连接</Button>
       <Button className="ghost" onClick={() => setCloseOpen(null)}>再想想</Button>
     </Modal>}
+
+    <ReportBlockDialog open={safetyOpen} onClose={() => setSafetyOpen(false)} viewer={view.me.id}
+      sourceType="connection" sourceId={conn.id} hasBinding={!!view.us.relationship} />
   </>;
 }
 
