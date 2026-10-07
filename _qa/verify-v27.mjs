@@ -59,20 +59,15 @@ const businessToday = ms => new Date(ms).toLocaleDateString("sv-SE", { timeZone:
 
 await req("POST", `/api/v2/admin/reset`, { body: {}, cookie: cookies.a });
 
-// ---------- 基础链路：成年声明 → 入场活动 → 雷达 → 定向摇铃 → 回响 → 邀请 → 建立 ----------
-// v2.8（M03）：摇铃必须携带 candidateRef，关系邀请/授权必须携带 connectionId。
+// ---------- 基础链路：成年声明 → 雷达 → 摇铃 → 回响 → 邀请 → 建立 ----------
 await post("a", "declare-adult", {});
 await post("b", "declare-adult", {});
 const traits = [{ category: "穿着", value: "黑色外套" }, { category: "手持物", value: "拿着咖啡" }];
-await post("a", "meet/events/join", { code: "HEARTS26" });
-await post("b", "meet/events/join", { code: "HEARTS26" });
 await post("a", "radar", { active: true, traits });
 await post("b", "radar", { active: true, traits });
-const candB = (await state("a")).meet.candidates[0];
-const bell = await post("a", "ring", { candidateRef: candB.candidateRef, message: "想认识你。", idempotencyKey: "qa-v27-bell-1" });
-const resp = await post("b", "respond", { bellId: bell.json.data.bellId, status: "accepted" });
-const connAB = resp.json.data.connectionId;
-await post("a", "relationships/propose", { connectionId: connAB });
+const bell = await post("a", "ring", { message: "想认识你。" });
+await post("b", "respond", { bellId: bell.json.data.bellId, status: "accepted" });
+await post("a", "relationships/propose", {});
 const invite = (await state("b")).us.incomingInvite;
 check("前置：B 收到关系邀请", !!invite);
 const relId = invite.id;
@@ -170,7 +165,7 @@ const archiveDetail = await get("b", `diaries/detail?id=${staleId}`);
 check("P1-08 归档详情仍可读（仅确认版本）", archiveDetail.status === 200, archiveDetail.json);
 
 // ---------- P1-04：后台工单自领自审（UI 闭环） ----------
-await post("a", "relationships/propose", { connectionId: connAB });
+await post("a", "relationships/propose", {});
 const invite2 = (await state("b")).us.incomingInvite;
 await post("b", "relationships/accept", { relationshipId: invite2.id });
 const plan = await post("a", "plans", { targetType: "anniversary", rewardChoice: "A" });

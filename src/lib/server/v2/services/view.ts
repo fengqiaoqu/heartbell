@@ -9,8 +9,6 @@ import { planRulesSummary } from "../../../domain/plan-rules";
 import { now as v2now, runModes, sweep } from "../registry";
 import { anchorEvidenceOf } from "./anchor";
 import { currentVersion } from "./diary";
-import { buildCandidates, discoveryContextOf } from "./discovery";
-import { activeMembershipOf, joinCooldownSeconds } from "./events";
 import { blockedEitherWay, canReadShared, notificationVisible, visibleDiaryVersions } from "../privacy-policy";
 import type { KnowConnectionDto, TimelineItemDto, V2StateView } from "../../../domain/view-dtos";
 import type { AnchorJob, CommitmentPlan, PromiseDoc } from "../../../domain/v2-types";
@@ -43,27 +41,25 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
   const now = v2now(state);
   const modes = runModes();
   const user = state.users.get(viewer)!;
+  const partnerCandidates = [...state.users.values()].filter(u => u.id !== viewer && u.kind === "demo");
+  const partner = partnerCandidates[0] ?? null;
 
-  // ---------- 相遇（v2.8 M03：活动 + 多候选 + 定向铃声） ----------
+  // ---------- 相遇 ----------
   const radar = state.radar.get(viewer);
   const myRel = activeRelationshipOf(state, viewer);
-  const discovery = discoveryContextOf(state, viewer, now);
-  const membership = activeMembershipOf(state, viewer);
-  const joinedEvent = membership ? state.events.find(e => e.id === membership.eventId) ?? null : null;
-  const candidates = buildCandidates(state, viewer, now);
+  const closedWith = new Set(state.connections.filter(c => c.closed && c.members.includes(viewer)).map(c => c.members[0] === viewer ? c.members[1] : c.members[0]));
+  // 雷达互相可见、连接未关闭、双方都没有有效关系（MEET-02/MEET-06）；
+  // 最小资料仅含一句话介绍，不含其他长期信息。
+  // v2.6：被屏蔽的双方从候选中互相不可见；已注销用户不再出现。
+  const partnerRadar = partner ? state.radar.get(partner.id) : null;
+  const nearbyVisible = (radar?.active && partner && partnerRadar?.active && !closedWith.has(partner.id)
+    && !blockedEitherWay(state, viewer, partner.id) && !myRel && !activeRelationshipOf(state, partner.id)
+    && partner.disabledAt === null)
+    ? [{ userId: partner.id, traits: partnerRadar!.traits.map(t => ({ category: t.category, value: t.value })), bio: partner.profile.bio }]
+    : [];
   const myBells = state.bells.filter(b => b.from === viewer || b.to === viewer);
-  const bells = myBells.map(b => ({
-    id: b.id,
-    direction: b.to === viewer ? "incoming" as const : "outgoing" as const,
-    counterpartyAlias: b.to === viewer ? b.fromAlias : b.toAlias,
-    counterpartyTraits: (b.to === viewer ? b.fromTraits : b.toTraits).map(t => ({ category: String(t.category), value: t.value })),
-    counterpartyNote: b.to === viewer ? b.fromNote : b.toNote,
-    message: b.message,
-    status: b.status,
-    createdAt: b.createdAt,
-    expiresAt: b.expiresAt,
-    connectionId: b.connectionId,
-  }));
+  const roundStart = radar?.expiresAt ? radar.expiresAt - 600_000 : 0;
+  const ringRoundUsed = !!partner && state.bells.some(b => b.from === viewer && b.to === partner.id && b.createdAt >= roundStart);
 
   // ---------- 了解 ----------
   const connections: KnowConnectionDto[] = state.connections.filter(c => c.members.includes(viewer)).map(conn => {
@@ -111,16 +107,8 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
   const invite = pendingInviteFor(state, viewer);
   const incomingInvite = invite && invite.proposedBy !== viewer ? invite : null;
   const outgoingInvite = invite && invite.proposedBy === viewer ? invite : null;
-  // v2.8（M03 MD-06 隐私审计）：nicknameOf 只包含调用者有权读取的当前对象成员与必要系统标签
-  // —— 此前全量输出所有 Demo 用户昵称，A/B 相关页面会带出 C/D/E/F 的长期昵称。
   const nicknameOf: Record<string, string | undefined> = {};
-  nicknameOf[viewer] = user.profile.nickname;
-  for (const u of state.users.values()) {
-    if (u.disabledAt) continue;
-    const known = state.relationships.some(r => r.members.includes(viewer) && r.members.includes(u.id))
-      || state.connections.some(c => c.members.includes(viewer) && c.members.includes(u.id));
-    if (known) nicknameOf[u.id] = u.profile.nickname;
-  }
+  for (const u of state.users.values()) if (u.kind === "demo") nicknameOf[u.id] = u.profile.nickname;
   nicknameOf["system"] = "系统";
   nicknameOf["demo-admin"] = "演示审核台";
 
@@ -226,24 +214,19 @@ export function buildStateView(state: V2State, viewer: string): V2StateView {
       ledger: state.ledger.filter(e => e.from === `user:${viewer}` || e.to === `user:${viewer}`).slice(-30).reverse(),
     },
     meet: {
-      event: {
-        joined: !!membership && !!joinedEvent,
-        eventId: joinedEvent?.id ?? null,
-        eventName: joinedEvent?.name ?? null,
-        status: joinedEvent?.status ?? null,
-        endsAt: joinedEvent?.endsAt ?? null,
-        switchPending: false, // 详见 GET /meet/context（join 返回 409 EVENT_CONFLICT 时前端提示确认）
-      },
-      radarActive: !!radar?.active && discovery.radarActive,
+      radarActive: !!radar?.active,
       radarExpiresAt: radar?.expiresAt ?? null,
       myTraits: radar?.traits.map(t => ({ category: t.category, value: t.value })) ?? [],
-      myDiscoveryNote: radar?.discoveryNote ?? "",
-      zoneLabel: "同一活动 · 演示街区（模拟位置，非真实距离）",
+      zoneLabel: "武汉 · 演示街区（模拟位置，非真实距离）",
       blockedByRelationship: !!myRel,
-      ineligibleReason: discovery.ineligibleReason,
-      joinCooldownSeconds: joinCooldownSeconds(state, viewer, now),
-      candidates,
-      bells,
+      nearby: nearbyVisible.map(n => ({ userId: n.userId, traits: n.traits.map(t => ({ category: String(t.category), value: t.value })), bio: n.bio })),
+      bells: myBells.map(b => ({
+        id: b.id,
+        from: b.status === "pending" && b.to === viewer ? "匿名铃铛" : b.from,
+        to: b.to, message: b.message, status: b.status, createdAt: b.createdAt,
+        anonymous: b.status === "pending",
+      })),
+      ringRoundUsed,
       waitingEcho: myBells.some(b => b.from === viewer && b.status === "pending"),
     },
     know: {

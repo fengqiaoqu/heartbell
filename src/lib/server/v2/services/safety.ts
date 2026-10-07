@@ -15,7 +15,6 @@ const DAY = 86_400_000;
 const MAX_NEW_REPORTS_PER_DAY = 5;
 const APPEAL_WINDOW_DAYS = 7;
 const SUPPLEMENT_WINDOW_DAYS = 7;
-import { resolveCandidateRef } from "./discovery";
 
 function rid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -30,14 +29,12 @@ function aliasCodeOf(sourceId: string): string {
 
 // ---------- targetRef 签发与校验 ----------
 
-// 来源可见性校验：铃声接收者（近 7 天内，含已过期/已忽略）、连接成员、关系成员可以引用对应对象。
+// 来源可见性校验：铃声接收者、连接成员、关系成员可以引用对应对象。
 // 未通过可见性校验的引用不能用来探测其他用户档案（T23）。
-// v2.8（M03 MD-13）：铃声来源核验覆盖接收者最近 7 天的铃声历史，包括 expired/dismissed ——
-// 这只扩大救济入口，不扩大回响或读档案权限。
 export function targetContext(state: V2State, viewer: string, sourceType: unknown, sourceId: unknown, now: number): {
   sourceLabel: string; targetLabel: string; targetRef: string;
 } {
-  if (sourceType !== "bell" && sourceType !== "connection" && sourceType !== "relationship" && sourceType !== "candidate") {
+  if (sourceType !== "bell" && sourceType !== "connection" && sourceType !== "relationship") {
     throw badRequest("无效的来源类型");
   }
   if (typeof sourceId !== "string") throw badRequest("无效的来源 ID");
@@ -45,18 +42,11 @@ export function targetContext(state: V2State, viewer: string, sourceType: unknow
   let targetLabel = "";
   let sourceLabel = "";
   if (sourceType === "bell") {
-    const bell = state.bells.find(b =>
-      b.id === sourceId && b.to === viewer && now - b.createdAt <= REF_VALID_DAYS * DAY);
-    if (!bell) throw notFound("来源不存在或不可见");
+    const bell = state.bells.find(b => b.id === sourceId);
+    if (!bell || bell.to !== viewer || bell.status !== "pending") throw notFound("来源不存在或不可见");
     targetId = bell.from;
     targetLabel = `相遇对象 · ${aliasCodeOf(bell.id)}`; // 未揭晓：仅临时标签
-    sourceLabel = "一条铃声（含已过期或已忽略）";
-  } else if (sourceType === "candidate") {
-    // v2.8（MD-13）：候选卡举报入口 —— 只接受有效候选引用换签，不能提交裸 targetUserId。
-    const ref = resolveCandidateRefForSafety(state, viewer, sourceId, now);
-    targetId = ref.targetId;
-    targetLabel = `相遇对象 · ${aliasCodeOf(ref.token)}`;
-    sourceLabel = "一张匿名候选卡";
+    sourceLabel = "一条待回响的铃声";
   } else if (sourceType === "connection") {
     const conn = state.connections.find(c => c.id === sourceId && c.members.includes(viewer));
     if (!conn) throw notFound("来源不存在或不可见");
@@ -82,21 +72,6 @@ export function targetContext(state: V2State, viewer: string, sourceType: unknow
   };
   state.safetyTargetRefs.push(ref);
   return { sourceLabel, targetLabel, targetRef: ref.ref };
-}
-
-// v2.8（M03 MD-13）：候选卡安全上下文 —— 有效 candidateRef 换取独立 safety targetRef；
-// 后者沿用 7 天时效，只用于举报/屏蔽，不能用于摇铃或读档案（服务端不签发反向能力）。
-function resolveCandidateRefForSafety(state: V2State, viewer: string, token: string, now: number) {
-  const ref = resolveCandidateRef(state, viewer, token, now);
-  if (!ref) throw notFound("此候选已不可操作，请刷新后重新选择");
-  return ref;
-}
-
-export function candidateSafetyContext(state: V2State, viewer: string, candidateRef: unknown, now: number): {
-  sourceLabel: string; targetLabel: string; targetRef: string;
-} {
-  if (typeof candidateRef !== "string" || !candidateRef) throw badRequest("缺少候选引用");
-  return targetContext(state, viewer, "candidate", candidateRef, now);
 }
 
 function resolveTargetRef(state: V2State, viewer: string, ref: unknown, now: number): SafetyTargetRef {
@@ -153,10 +128,6 @@ export function blockTarget(state: V2State, viewer: string, targetRef: unknown, 
       cascade.bellsCancelled += 1;
     }
   }
-  // v2.8（M03 MD-13）：屏蔽立即影响候选引用 —— 双方相关引用全部失效；解除屏蔽不复活旧记录。
-  state.candidateRefs = state.candidateRefs.filter(ref =>
-    !((ref.actorId === viewer && ref.targetId === target) || (ref.actorId === target && ref.targetId === viewer)));
-  // 屏蔽双方雷达保持运行（可被其他人发现），只是彼此不可见 —— 由资格函数排除。
   // 取消待响应关系邀请（两个方向；已有 active/married 关系不动）
   for (const rel of state.relationships) {
     if (rel.status === "proposed" && rel.members.includes(viewer) && rel.members.includes(target)) {
@@ -204,7 +175,7 @@ export function reportDtoForUser(report: SafetyReport) {
   return {
     id: report.id,
     targetLabel: report.targetLabel, // 脱敏标签，不含对方真实档案
-    sourceLabel: report.sourceType === "bell" ? "相遇铃声" : report.sourceType === "candidate" ? "匿名候选卡" : report.sourceType === "connection" ? "已回响连接" : "绑定关系",
+    sourceLabel: report.sourceType === "bell" ? "相遇铃声" : report.sourceType === "connection" ? "已回响连接" : "绑定关系",
     reason: report.reason,
     reasonLabel: safetyReasonLabels[report.reason],
     description: report.description,

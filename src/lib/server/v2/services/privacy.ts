@@ -7,7 +7,6 @@ import { activeRelationshipOf, pushPrivacyAudit } from "../../../repositories/de
 import { badRequest, conflict, forbidden, notFound, unauthenticated } from "../errors";
 import { now as v2now } from "../registry";
 import { notificationVisible, revokeGrantsBetween, visibleDiaryVersions } from "../privacy-policy";
-import { activeMembershipOf } from "./events";
 import { verifyDemoPassword, newRestrictedCredential, revokeAllSessionsForUser, hashCredential } from "../../demo-auth";
 import { safetyStats } from "./safety";
 import {
@@ -232,13 +231,6 @@ export function requestDeletion(
   // 2) 停止发现与新的互动入口。
   const radar = state.radar.get(viewer);
   if (radar?.active) { radar.active = false; radar.expiresAt = null; }
-  // v2.8（M03 MD-13）：注销联动 —— 结束活动成员身份、失效候选引用、终结相关待处理铃声。
-  const membership = activeMembershipOf(state, viewer);
-  if (membership && membership.leftAt === null) membership.leftAt = now;
-  state.candidateRefs = state.candidateRefs.filter(ref => ref.actorId !== viewer && ref.targetId !== viewer);
-  for (const bell of state.bells) {
-    if (bell.status === "pending" && (bell.from === viewer || bell.to === viewer)) bell.status = "expired";
-  }
   // 3) 撤销双向全部授权。
   let revoked = 0;
   for (const other of [...state.users.keys()]) {

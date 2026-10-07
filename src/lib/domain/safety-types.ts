@@ -40,7 +40,7 @@ export interface SafetyTargetRef {
   ref: string;
   actorId: string;
   targetId: string;        // 服务端私有：不进入用户 DTO
-  sourceType: "bell" | "connection" | "relationship" | "candidate"; // v2.8：candidate = 候选卡举报入口
+  sourceType: "bell" | "connection" | "relationship";
   sourceId: string;
   targetLabel: string;     // 安全展示标签（未揭晓对象为“相遇对象 · XN9”式别名）
   createdAt: number;

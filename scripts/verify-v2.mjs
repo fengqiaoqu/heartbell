@@ -49,82 +49,60 @@ for (const path of ["/", "/demo/a?tab=know", "/demo/b?tab=future", "/demo/admin"
 }
 
 // ---------- T01 相遇：雷达、摇铃、回响、揭晓 ----------
-
-// v2.8（M03）：相遇夹具 —— 入场活动 → 开雷达 → 定向摇铃 → 回响；返回 A↔B 连接 ID。
-async function meetFixtureAB(tag) {
-  for (const viewer of ["a", "b"]) {
-    await post("declare-adult", { viewer });
-    await post("meet/events/join", { viewer, code: "HEARTS26" });
-  }
-  for (const viewer of ["a", "b"]) {
-    await post("radar", { viewer, active: true, traits: [{ category: "穿着", value: "外套-" + tag }, { category: "手持物", value: "拿着咖啡" }] });
-  }
-  const candB = (await state("a")).meet.candidates[0];
-  const ring = await post("ring", { viewer: "a", candidateRef: candB.candidateRef, message: "想认识你。", idempotencyKey: "v2-bell-" + tag });
-  if (ring.status !== 200) throw new Error("摇铃失败: " + JSON.stringify(ring.json));
-  const bell = (await state("b")).meet.bells.find(x => x.status === "pending" && x.direction === "incoming");
-  const resp = await post("respond", { viewer: "b", bellId: bell.id, status: "accepted" });
-  return resp.json.data.connectionId;
-}
-
 const before = await state("b");
 check("初始无档案泄露", before.know.connections.length === 0 && before.me.profile.nickname === "阿响");
 await post("declare-adult", { viewer: "a" });
 await post("declare-adult", { viewer: "b" });
-check("v2.8 缺少候选引用的摇铃被拒(400)", (await post("ring", { viewer: "a", message: "想认识你。", idempotencyKey: "v2-missing-ref" })).status === 400);
-for (const viewer of ["a", "b"]) await post("meet/events/join", { viewer, code: "HEARTS26" });
+check("未声明者摇铃被拒(已声明)", (await post("ring", { viewer: "a", message: "想认识你。" })).status === 409);
 for (const viewer of ["a", "b"]) {
   const r = await post("radar", { viewer, active: true, traits: [{ category: "穿着", value: "黑色外套" }, { category: "手持物", value: "拿着咖啡" }] });
   check(`开启雷达 ${viewer}`, r.status === 200);
 }
 check("无效特征被拒", (await post("radar", { viewer: "a", active: true, traits: [{ category: "无效", value: "x" }, { category: "其他", value: "y" }] })).status === 400);
-const candB0 = (await state("a")).meet.candidates[0];
-const ring = await post("ring", { viewer: "a", candidateRef: candB0.candidateRef, message: "想认识你。", idempotencyKey: "v2-ring-1" });
-check("A 定向摇铃成功", ring.status === 200 && !!ring.json.data.bellId);
-check("T02 重复摇铃被拒(同对象 10 分钟窗口)", (await post("ring", { viewer: "a", candidateRef: candB0.candidateRef, message: "想和你聊一聊。", idempotencyKey: "v2-ring-2" })).status === 409);
+const ring = await post("ring", { viewer: "a", message: "想认识你。" });
+check("A 摇铃成功", ring.status === 200 && !!ring.json.data.bellId);
+check("T02 重复摇铃被拒", (await post("ring", { viewer: "a", message: "想认识你。" })).status === 409);
 const bView = await state("b");
-const pendingBell = bView.meet.bells.find(x => x.status === "pending" && x.direction === "incoming");
-check("v2.8 B 收到匿名铃声(别名快照，无 from/to)", !!pendingBell && !!pendingBell.counterpartyAlias && !("from" in pendingBell) && !("to" in pendingBell));
+const pendingBell = bView.meet.bells.find(x => x.status === "pending");
+check("B 收到匿名铃声(无档案字段)", !!pendingBell && pendingBell.anonymous === true);
 check("T01 未回响前 B 看不到 A 档案", bView.know.connections.length === 0);
 const respond = await post("respond", { viewer: "b", bellId: pendingBell.id, status: "accepted" });
 check("B 回响成功", respond.status === 200);
-const connAB = respond.json.data.connectionId;
 const aAfterEcho = await state("a");
 check("T01 回响后双方档案揭晓（档案不含联系方式）", aAfterEcho.know.connections[0]?.profile?.nickname === "阿响" && aAfterEcho.know.connections[0].contacts === null);
 check("T02 未授权不返回联系方式", aAfterEcho.know.connections[0].contacts === null);
 
 // ---------- 联系方式独立授权 ----------
-check("授权联系方式", (await post("share-grants", { viewer: "b", scope: "profile_contact", connectionId: connAB })).status === 200);
+check("授权联系方式", (await post("share-grants", { viewer: "b", scope: "profile_contact" })).status === 200);
 const aWithContact = await state("a");
 check("授权后可见全部联系方式栏（微信+手机号）", JSON.stringify(aWithContact.know.connections[0].contacts) === JSON.stringify([{label:"微信",value:"demo-axiang"},{label:"手机号",value:"139****0002（演示）"}]));
 
 // ---------- T03/T04/T05 履约摘要与授权 ----------
 check("T03 未授权读取摘要被拒", (await get(`trust/summary?subjectId=b&viewer=a`)).status === 403);
-const grantTrust = await post("share-grants", { viewer: "b", scope: "trust_summary", connectionId: connAB });
+const grantTrust = await post("share-grants", { viewer: "b", scope: "trust_summary" });
 check("B 授权履约摘要", grantTrust.status === 200);
 const trust = await get("trust/summary?subjectId=b&viewer=a");
 check("T04 演示前史 71 分", trust.status === 200 && trust.json.data.score === 71, trust.json.data);
 check("T04 明细 s=4 f=1 n=5 coverage=1", trust.json.data.s === 4 && trust.json.data.f === 1 && trust.json.data.eligible === 5 && trust.json.data.coverage === 1);
 check("演示数据标注", trust.json.data.origin === "demo");
-await post("share-grants", { viewer: "a", scope: "trust_summary", connectionId: connAB }); // a 主动授权 b 查看自己的摘要
+await post("share-grants", { viewer: "a", scope: "trust_summary" }); // a 主动授权 b 查看自己的摘要
 const trustA = await get("trust/summary?subjectId=a&viewer=b");
 check("T05 新用户无历史 → null 分数", trustA.status === 200 && trustA.json.data.score === null && trustA.json.data.reason === "no_history");
 const cardBefore = (await state("a")).know.connections[0].trust;
 check("了解卡片显示已授权摘要", cardBefore.status === "granted" && cardBefore.summary.score === 71);
 
 // ---------- T06 关系状态机 ----------
-check("v2.8 缺少 connectionId 的邀请被拒(400)", (await post("relationships/propose", { viewer: "a" })).status === 400);
-check("按连接邀请成功", (await post("relationships/propose", { viewer: "a", connectionId: connAB })).status === 200);
+check("无连接时不能邀请", (await post("relationships/propose", { viewer: "a" })).status === 200); // 已有连接，成功
 const propose = (await state("b")).us.incomingInvite;
 check("B 收到关系邀请", !!propose);
 check("T06 不能自己确认自己的邀请", (await post("relationships/accept", { viewer: "a", relationshipId: propose.id })).status === 400);
 const accept = await post("relationships/accept", { viewer: "b", relationshipId: propose.id });
 check("双方确认后关系 active", accept.status === 200 && (await state("a")).us.relationship?.status === "active");
 check("T06 重复接受被拒", (await post("relationships/accept", { viewer: "b", relationshipId: propose.id })).status === 409);
-check("T06 已绑定后不能再邀请", (await post("relationships/propose", { viewer: "a", connectionId: connAB })).status === 409);
+check("T06 已绑定后不能再邀请", (await post("relationships/propose", { viewer: "a" })).status === 409);
 // MEET-06：关系中服务端拦截雷达
 check("MEET-06 关系中开启雷达被服务端拦截", (await post("radar", { viewer: "a", active: true, traits: [{ category: "穿着", value: "x" }, { category: "其他", value: "y" }] })).status === 403);
-check("MEET-06 关系中摇铃被服务端拦截", (await post("ring", { viewer: "a", candidateRef: "cr-any", message: "想认识你。", idempotencyKey: "v2-ring-rel" })).status === 403);
+check("MEET-06 关系中摇铃被服务端拦截", (await post("ring", { viewer: "a", message: "想认识你。" })).status === 403);
 const usA = await state("a");
 check("关系空间含系统纪念节点", usA.us.timeline.some(t => t.type === "auto-milestone" && t.title === "关系第一天"));
 
@@ -192,7 +170,7 @@ check("T20 激活前目标不能申请(冷静期内)", (await post("plans/claims
 // 先建第二个计划用于冷静期测试？每关系限一个有效计划 → 先走完本计划的领取流程再测失效分支。
 // 推进 25 小时：过冷静期。
 await post("admin/advance-time", { ms: 25 * HOUR });
-const claimT = (await state("a")).modes.virtualNow; // v2.8：目标日期不得晚于业务今天
+const claimT = Date.now() + 25 * HOUR; // 近似虚拟现在
 const claim = await post("plans/claims", { viewer: "a", planId, targetOccurredAt: claimT, evidenceNote: "双方线下登记（演示剧情，非真实证件）" });
 check("提交达成申请", claim.status === 200);
 check("T20 重复申请被拒", (await post("plans/claims", { viewer: "b", planId, targetOccurredAt: claimT, evidenceNote: "再来一次" })).status === 409);
@@ -254,8 +232,12 @@ function canonicalJcs(value) {
 
 // ---------- T18/T21 场景二：正常失效 + 审核中退出 ----------
 await post("admin/reset", {});
-const conn2 = await meetFixtureAB("s2");
-await post("relationships/propose", { viewer: "a", connectionId: conn2 });
+for (const viewer of ["a", "b"]) await post("declare-adult", { viewer });
+for (const viewer of ["a", "b"]) await post("radar", { viewer, active: true, traits: [{ category: "穿着", value: "黑色外套" }, { category: "手持物", value: "拿着咖啡" }] });
+await post("ring", { viewer: "a", message: "想认识你。" });
+const bell2 = (await state("b")).meet.bells.find(x => x.status === "pending");
+await post("respond", { viewer: "b", bellId: bell2.id, status: "accepted" });
+await post("relationships/propose", { viewer: "a" });
 const invite2 = (await state("b")).us.incomingInvite;
 await post("relationships/accept", { viewer: "b", relationshipId: invite2.id });
 // 冷静期内取消：全额退款
@@ -318,8 +300,12 @@ if (revokeGrant) {
 
 // ---------- 存证故障与恢复（T14：失败 → 恢复同一任务） ----------
 await post("admin/reset", {});
-const conn3 = await meetFixtureAB("s3");
-await post("relationships/propose", { viewer: "a", connectionId: conn3 });
+for (const viewer of ["a", "b"]) await post("declare-adult", { viewer });
+for (const viewer of ["a", "b"]) await post("radar", { viewer, active: true, traits: [{ category: "穿着", value: "黑色外套" }, { category: "手持物", value: "拿着咖啡" }] });
+await post("ring", { viewer: "a", message: "想认识你。" });
+const bell3 = (await state("b")).meet.bells.find(x => x.status === "pending");
+await post("respond", { viewer: "b", bellId: bell3.id, status: "accepted" });
+await post("relationships/propose", { viewer: "a" });
 const invite3 = (await state("b")).us.incomingInvite;
 await post("relationships/accept", { viewer: "b", relationshipId: invite3.id });
 const diaryFault = await post("diaries", { viewer: "a", kind: "diary", date: "2026-10-03", title: "故障演练", body: "写入失败后可以恢复。", attachmentIds: [], visibility: "shared" });

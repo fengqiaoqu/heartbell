@@ -17,8 +17,6 @@ import * as admin from "../../../../lib/server/v2/services/admin";
 import { buildStateView } from "../../../../lib/server/v2/services/view";
 import * as safety from "../../../../lib/server/v2/services/safety";
 import * as privacy from "../../../../lib/server/v2/services/privacy";
-import * as events from "../../../../lib/server/v2/services/events";
-import { buildCandidates, discoveryContextOf } from "../../../../lib/server/v2/services/discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -66,67 +64,16 @@ const routes: Record<string, Handler> = {
   // ---------- 我的 ----------
   "POST /declare-adult": ({ viewer, body }) => { const state = getV2State(); rel.declareAdult(state, resolveDemoUser(state, body.viewer ?? viewer)); return { ok: true }; },
   "POST /profile": ({ viewer, body }) => { const state = getV2State(); rel.updateMyProfile(state, resolveDemoUser(state, body.viewer ?? viewer), body); return { ok: true }; },
-  // ---------- 相遇（v2.8 M03：活动 + 多候选 + 定向铃声） ----------
-  "GET /meet/context": ({ viewer }) => {
-    const { state, now } = sweepAndNow();
-    const me = resolveDemoUser(state, viewer);
-    const membership = events.activeMembershipOf(state, me);
-    const event = membership ? state.events.find(e => e.id === membership.eventId) ?? null : null;
-    const radar = state.radar.get(me);
-    const discoveryCtx = discoveryContextOf(state, me, now);
-    return {
-      event: membership && event ? {
-        eventId: event.id, eventName: event.name, status: event.status,
-        endsAt: event.endsAt, memberLabel: "同一活动 · 演示账号",
-      } : null,
-      radar: {
-        active: discoveryCtx.radarActive,
-        expiresAt: radar?.expiresAt ?? null,
-        traits: radar?.traits.map(t => ({ category: String(t.category), value: t.value })) ?? [],
-        discoveryNote: radar?.discoveryNote ?? "",
-      },
-      joinCooldownSeconds: events.joinCooldownSeconds(state, me, now),
-    };
-  },
-  "POST /meet/events/join": ({ viewer, body }) => {
-    const { state, now } = sweepAndNow();
-    return events.joinEvent(state, resolveDemoUser(state, body.viewer ?? viewer), body.code, body.replaceCurrent, now);
-  },
-  "POST /meet/events/leave": ({ viewer, body }) => {
-    const { state, now } = sweepAndNow();
-    return events.leaveEvent(state, resolveDemoUser(state, body.viewer ?? viewer), body.eventId, now);
-  },
-  "GET /meet/candidates": ({ viewer }) => {
-    const { state, now } = sweepAndNow();
-    return { items: buildCandidates(state, resolveDemoUser(state, viewer), now), generatedAt: now };
-  },
-  "POST /radar": ({ viewer, body }) => {
-    const { state, now } = sweepAndNow();
-    meet.setRadar(state, resolveDemoUser(state, body.viewer ?? viewer), body.active === true, { traits: body.traits, discoveryNote: body.discoveryNote }, now);
-    return { ok: true };
-  },
-  // v2.8（MD-08）：必须携带 candidateRef 与幂等键；请求头与 body 幂等键冲突返回 400。
-  "POST /ring": ({ viewer, body, idempotencyKey }) => {
-    const { state, now } = sweepAndNow();
-    const headerKey = idempotencyKey;
-    const bodyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey : null;
-    if (headerKey !== null && bodyKey !== null && headerKey !== bodyKey) {
-      throw new ApiError(400, "BAD_REQUEST", "请求头与请求体中的幂等键不一致");
-    }
-    return meet.ringBell(state, resolveDemoUser(state, body.viewer ?? viewer), {
-      candidateRef: body.candidateRef, message: body.message, idempotencyKey: bodyKey ?? undefined,
-    }, headerKey, now);
-  },
-  "POST /respond": ({ viewer, body }) => {
-    const { state, now } = sweepAndNow();
-    return meet.respondBell(state, resolveDemoUser(state, body.viewer ?? viewer), body.bellId, body.status, now);
-  },
+  // ---------- 相遇 ----------
+  "POST /radar": ({ viewer, body }) => { const { state, now } = sweepAndNow(); meet.setRadar(state, resolveDemoUser(state, body.viewer ?? viewer), body.active === true, body.traits, now); return { ok: true }; },
+  "POST /ring": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const bellId = meet.ringBell(state, resolveDemoUser(state, body.viewer ?? viewer), body.message, now); return { ok: true, bellId }; },
+  "POST /respond": ({ viewer, body }) => { const { state, now } = sweepAndNow(); meet.respondBell(state, resolveDemoUser(state, body.viewer ?? viewer), body.bellId, body.status, now); return { ok: true }; },
   "POST /connection-close": ({ viewer, body }) => { const { state, now } = sweepAndNow(); meet.closeConnection(state, resolveDemoUser(state, body.viewer ?? viewer), body.connectionId, now); return { ok: true }; },
-  // ---------- 授权（v2.8：强制 connectionId） ----------
-  "POST /share-grants": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const id = rel.createShareGrant(state, resolveDemoUser(state, body.viewer ?? viewer), body.scope, body.connectionId, now); return { ok: true, grantId: id }; },
+  // ---------- 授权 ----------
+  "POST /share-grants": ({ viewer, body }) => { const { state, now } = sweepAndNow(); const id = rel.createShareGrant(state, resolveDemoUser(state, body.viewer ?? viewer), body.scope, now); return { ok: true, grantId: id }; },
   "POST /share-grants/revoke": ({ viewer, body }) => { const { state, now } = sweepAndNow(); rel.revokeShareGrant(state, resolveDemoUser(state, body.viewer ?? viewer), body.grantId, now); return { ok: true }; },
-  // ---------- 关系（v2.8：强制 connectionId） ----------
-  "POST /relationships/propose": ({ viewer, body }) => { const { state, now } = sweepAndNow(); return rel.proposeRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.connectionId, now); },
+  // ---------- 关系 ----------
+  "POST /relationships/propose": ({ viewer, body }) => { const { state, now } = sweepAndNow(); return rel.proposeRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), now); },
   "POST /relationships/accept": ({ viewer, body }) => { const { state, now } = sweepAndNow(); rel.acceptRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId, now); return { ok: true }; },
   "POST /relationships/decline": ({ viewer, body }) => { const state = getV2State(); rel.declineRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId); return { ok: true }; },
   "POST /relationships/cancel": ({ viewer, body }) => { const state = getV2State(); rel.cancelRelationship(state, resolveDemoUser(state, body.viewer ?? viewer), body.relationshipId); return { ok: true }; },
@@ -226,11 +173,6 @@ const routes: Record<string, Handler> = {
   "GET /safety/target-context": ({ viewer, url }) => {
     const { state, now } = sweepAndNow();
     return safety.targetContext(state, resolveDemoUser(state, viewer), url.searchParams.get("sourceType"), url.searchParams.get("sourceId"), now);
-  },
-  // v2.8（M03 MD-13）：候选卡安全入口 —— 有效 candidateRef 换取独立 safety targetRef（仅救济用途）。
-  "POST /safety/candidate-context": ({ viewer, body }) => {
-    const { state, now } = sweepAndNow();
-    return safety.candidateSafetyContext(state, resolveDemoUser(state, body.viewer ?? viewer), body.candidateRef, now);
   },
   "GET /safety/blocks": ({ viewer }) => { const { state } = sweepAndNow(); return safety.listBlocks(state, resolveDemoUser(state, viewer)); },
   "POST /safety/blocks": ({ viewer, body }) => { const { state, now } = sweepAndNow(); return safety.blockTarget(state, resolveDemoUser(state, body.viewer ?? viewer), body.targetRef, now); },

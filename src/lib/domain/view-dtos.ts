@@ -19,46 +19,16 @@ export interface PublicMaintenanceDto {
 
 export type NotificationDto = NotificationV2;
 
-// v2.8（M03）：相遇视图 —— 多张匿名候选卡 + 按对象分状态的铃声；不含长期 userId/昵称/内部 from/to。
 export interface MeetDto {
-  event: {
-    joined: boolean;
-    eventId: string | null;
-    eventName: string | null;
-    status: "open" | "paused" | "closed" | null;
-    endsAt: number | null;
-    switchPending: boolean; // 已在另一活动，需要确认后才能换（前端提示）
-  };
   radarActive: boolean;
   radarExpiresAt: number | null;
   myTraits: { category: string; value: string }[];
-  myDiscoveryNote: string;
   zoneLabel: string;
   blockedByRelationship: boolean;
-  ineligibleReason: "no_event" | "event_not_open" | "radar_off" | "relationship" | "restriction" | null;
-  joinCooldownSeconds: number;
-  candidates: {
-    candidateRef: string;
-    alias: string;
-    traits: { category: string; value: string }[];
-    discoveryNote: string;
-    canRing: boolean;
-    ringState: "ready" | "pending" | "cooldown";
-    retryAfterSeconds?: number;
-  }[];
-  bells: {
-    id: string;
-    direction: "incoming" | "outgoing";
-    counterpartyAlias: string;
-    counterpartyTraits: { category: string; value: string }[];
-    counterpartyNote: string;
-    message: string;
-    status: "pending" | "accepted" | "dismissed" | "expired" | "superseded";
-    createdAt: number;
-    expiresAt: number | null;
-    connectionId: string | null;
-  }[];
-  waitingEcho: boolean; // 总览：有等待回响的发出铃声（不再据此禁用全部候选）
+  nearby: { userId: string; traits: { category: string; value: string }[]; bio: string }[]; // 匿名 + 一句话介绍（最小资料）
+  bells: { id: string; from: string; to: string; message: string; status: string; createdAt: number; anonymous: boolean }[];
+  ringRoundUsed: boolean;
+  waitingEcho: boolean;
 }
 
 export interface TrustCardDto {

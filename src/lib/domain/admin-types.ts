@@ -24,10 +24,7 @@ export type AdminPermission =
   | "safety.assign"    // 领取/改派工单（领取后才能裁定）
   | "safety.decide"    // 补正/结案（仅被指派审核员；不能复核自己的裁定）
   | "safety.appeal"    // 复核裁定（原审核员回避）
-  | "safety.restrict"  // 批准限时发现/摇铃限制（主管能力）
-  // v2.8（M03 MD-14）：活动管理
-  | "events.read"      // 查看活动列表与状态（不含明文活动码）
-  | "events.manage";   // 创建/暂停/恢复/关闭/换码
+  | "safety.restrict"; // 批准限时发现/摇铃限制（主管能力）
 
 // 角色权限矩阵（owner 不自动获得全部私密材料权限，矩阵按设计文档第 4 节收敛）。
 export const rolePermissions: Record<AdminRole, AdminPermission[]> = {
@@ -37,7 +34,6 @@ export const rolePermissions: Record<AdminRole, AdminPermission[]> = {
     "users.read", "rewards.read", "inventory.propose",
     "anchors.read", "anchors.retry", "system.read", "config.propose", "audit.read",
     "safety.read", "safety.assign", "safety.decide", "safety.appeal", "safety.restrict",
-    "events.read", "events.manage",
   ],
   reviewer: [
     "overview.read", "claims.read", "claims.assign", "claims.decide",
@@ -46,8 +42,8 @@ export const rolePermissions: Record<AdminRole, AdminPermission[]> = {
     "safety.read", "safety.assign", "safety.decide", "safety.appeal",
   ],
   support: ["overview.read", "users.read", "safety.read"],
-  maintainer: ["overview.read", "anchors.read", "anchors.retry", "system.read", "config.propose", "rewards.read", "events.read", "events.manage"],
-  auditor: ["overview.read", "audit.read", "events.read"],
+  maintainer: ["overview.read", "anchors.read", "anchors.retry", "system.read", "config.propose", "rewards.read"],
+  auditor: ["overview.read", "audit.read"],
 };
 
 export interface AdminAccount {

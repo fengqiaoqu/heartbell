@@ -14,27 +14,13 @@ import { assertPairCanInteract, revokeGrantsBetween } from "../privacy-policy";
 function connectionOf(state: V2State, viewer: string): { id: string; members: [string, string] } | null {
   return state.connections.find(c => c.members.includes(viewer) && !c.closed) ?? null;
 }
-void connectionOf;
-
-// v2.8（M03 MD-11）：写入目标必须来自页面明确展示和用户确认的当前连接；
-// 后端绝不隐式补“第一个连接”。缺 connectionId 返回 400，非本人/已关闭连接返回 403/404。
-function requireOpenConnectionOf(state: V2State, viewer: string, connectionId: unknown): { id: string; members: [string, string] } {
-  if (typeof connectionId !== "string" || !connectionId) {
-    throw badRequest("缺少 connectionId：请先在页面选择明确的对象");
-  }
-  const conn = state.connections.find(c => c.id === connectionId);
-  if (!conn || !conn.members.includes(viewer)) throw forbidden("连接不存在或不可用");
-  if (conn.closed) throw forbidden("该连接已关闭，不能继续此操作");
-  return conn as { id: string; members: [string, string] };
-}
 
 // 建立关系邀请：需要已回响连接、双方当前无有效绑定、无其他待处理邀请。
-// v2.8（MD-11/12）：必须提交 connectionId，后端核对成员与开放状态，不默认取第一个连接。
-export function proposeRelationship(state: V2State, viewer: string, connectionId: unknown, now: number): V2Relationship {
-  const conn = requireOpenConnectionOf(state, viewer, connectionId);
+export function proposeRelationship(state: V2State, viewer: string, now: number): V2Relationship {
+  const conn = connectionOf(state, viewer);
+  if (!conn) throw forbidden("需要先互相回响，才能邀请建立关系");
   const partner = conn.members[0] === viewer ? conn.members[1] : conn.members[0];
   assertPairCanInteract(state, viewer, partner); // v2.6：屏蔽期间拒绝新邀请
-  if (state.users.get(partner)?.disabledAt) throw forbidden("当前无法继续此操作。");
   if (activeRelationshipOf(state, viewer)) throw conflict("ALREADY_BOUND", "你已有进行中的关系绑定");
   if (activeRelationshipOf(state, partner)) throw conflict("ALREADY_BOUND", "对方已有进行中的关系绑定");
   if (pendingInviteFor(state, viewer) || pendingInviteFor(state, partner)) {
@@ -65,19 +51,6 @@ export function acceptRelationship(state: V2State, viewer: string, relId: unknow
   rel.consents[viewer] = true;
   rel.status = "active";
   rel.startedAt = now;
-  // v2.8（M03 MD-12）：确认关系时原子停止双方发现 —— 雷达关闭、候选引用失效、
-  // 尚未接受的铃声过期；其他已认识连接按原规则保留，不自动授权任何人。
-  for (const member of rel.members) {
-    const radar = state.radar.get(member);
-    if (radar?.active) { radar.active = false; radar.expiresAt = null; }
-  }
-  state.candidateRefs = state.candidateRefs.filter(ref =>
-    !rel.members.includes(ref.actorId) && !rel.members.includes(ref.targetId));
-  for (const bell of state.bells) {
-    if (bell.status === "pending" && rel.members.includes(bell.from) && rel.members.includes(bell.to)) {
-      bell.status = "expired";
-    }
-  }
   // 建立事件生成存证任务（每段关系独立档案；链上只写承诺）。
   enqueueAnchor(state, "relationship_started", rel.id, 1, {
     recordType: "relationship_started", recordId: rel.id, version: 1,
@@ -196,16 +169,16 @@ export function updateSpaceSettings(state: V2State, viewer: string, relationship
 
 const shareHours = 72;
 
-export function createShareGrant(state: V2State, viewer: string, scope: unknown, connectionId: unknown, now: number): string {
+export function createShareGrant(state: V2State, viewer: string, scope: unknown, now: number): string {
   const validScopes: ShareScope[] = ["profile_contact", "trust_summary"];
   if (!validScopes.includes(scope as ShareScope)) throw badRequest("未知授权范围");
-  // v2.8（MD-11）：授权必须提交 connectionId，按 owner/audience/scope 精确绑定当前连接。
-  const conn = requireOpenConnectionOf(state, viewer, connectionId);
+  const conn = state.connections.find(c => c.members.includes(viewer) && !c.closed);
+  if (!conn) throw forbidden("授权对象必须是已回响的连接");
   const audience = conn.members[0] === viewer ? conn.members[1] : conn.members[0];
   // v2.6：被屏蔽或对方已注销时拒绝新授权（掩护性错误，不泄露具体状态）。
   assertPairCanInteract(state, viewer, audience);
   if (state.users.get(audience)?.disabledAt) throw forbidden("当前无法继续此操作。");
-  // 重复授权复用原凭证（幂等），不悄悄延长期限；过期后的再次授权是明确的新操作（AT-40）。
+  // 重复授权返回原凭证（幂等），刷新有效期
   const existing = state.shareGrants.find(g =>
     g.ownerId === viewer && g.audienceId === audience && g.scope === scope && !g.revokedAt);
   if (existing && existing.expiresAt > now) return existing.id;

@@ -32,19 +32,16 @@ const state = async viewer => (await get(`state?viewer=${viewer}`)).json.data;
 await post("admin/reset", {});
 const today = () => new Date().toISOString().slice(0, 10);
 
-// ---------- 基础链路（v2.8：入场 → 雷达 → candidateRef 摇铃 → 回响 → connectionId 邀请） ----------
+// ---------- 基础链路：声明 → 雷达 → 摇铃 → 回响 → 建立关系 ----------
 await post("declare-adult", { viewer: "a" });
 await post("declare-adult", { viewer: "b" });
-for (const viewer of ["a", "b"]) await post("meet/events/join", { viewer, code: "HEARTS26" });
 for (const viewer of ["a", "b"]) {
   await post("radar", { viewer, active: true, traits: [{ category: "穿着", value: "黑色外套" }, { category: "手持物", value: "拿着咖啡" }] });
 }
-const candB = (await state("a")).meet.candidates[0];
-const ring = await post("ring", { viewer: "a", candidateRef: candB.candidateRef, message: "想认识你。", idempotencyKey: "qa-v22-bell-1" });
-const bell = (await state("b")).meet.bells.find(x => x.status === "pending" && x.direction === "incoming");
+const ring = await post("ring", { viewer: "a", message: "想认识你。" });
+const bell = (await state("b")).meet.bells.find(x => x.status === "pending");
 await post("respond", { viewer: "b", bellId: bell.id, status: "accepted" });
-const connAB = (await state("a")).know.connections[0].id;
-const propose = await post("relationships/propose", { viewer: "a", connectionId: connAB });
+const propose = await post("relationships/propose", { viewer: "a" });
 const relId = propose.json.data.id;
 await post("relationships/accept", { viewer: "b", relationshipId: relId });
 
@@ -107,7 +104,7 @@ await post("radar", { viewer: "a", active: false });
 
 // ---------- 重新建立关系，测试 7/8/9/10 ----------
 // 已回响的连接不重复摇铃（产品规则）：结束后通过既有连接直接再次邀请。
-const propose2 = await post("relationships/propose", { viewer: "a", connectionId: connAB });
+const propose2 = await post("relationships/propose", { viewer: "a" });
 check("7前置. 通过既有连接再次邀请", propose2.status === 200, propose2.json);
 const relId2 = propose2.json.data.id;
 await post("relationships/accept", { viewer: "b", relationshipId: relId2 });

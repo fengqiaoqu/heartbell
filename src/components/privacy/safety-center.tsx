@@ -296,12 +296,11 @@ export function SafetyCenter({ open, onClose, viewer }: { open: boolean; onClose
   </Modal>;
 }
 
-// ---------- 对象菜单：举报 / 屏蔽（相遇铃声 / 匿名候选卡 / 已回响连接 / 绑定关系四种来源） ----------
+// ---------- 对象菜单：举报 / 屏蔽（相遇铃声 / 已回响连接 / 绑定关系三种来源） ----------
 
-export function ReportBlockDialog({ open, onClose, viewer, sourceType, sourceId, candidateRef, hasBinding }: {
+export function ReportBlockDialog({ open, onClose, viewer, sourceType, sourceId, hasBinding }: {
   open: boolean; onClose: () => void; viewer: string;
-  sourceType: "bell" | "connection" | "relationship" | "candidate"; sourceId: string; hasBinding: boolean;
-  candidateRef?: string; // v2.8（MD-13）：候选卡举报入口 —— 服务端用有效候选引用换签 targetRef，不接受裸 targetUserId
+  sourceType: "bell" | "connection" | "relationship"; sourceId: string; hasBinding: boolean;
 }) {
   const [context, setContext] = useState<{ sourceLabel: string; targetLabel: string; targetRef: string } | null>(null);
   const [mode, setMode] = useState<"menu" | "report" | "block">("menu");
@@ -315,12 +314,10 @@ export function ReportBlockDialog({ open, onClose, viewer, sourceType, sourceId,
   useEffect(() => {
     if (!open) return;
     setMode("menu"); setDone(null); setError(""); setDescription(""); setBlockAlso(false);
-    // v2.8：candidate 来源走独立接口（POST + body），引用只在服务端解析为目标。
-    const load = sourceType === "candidate" && candidateRef
-      ? safetyPost<{ sourceLabel: string; targetLabel: string; targetRef: string }>(viewer, "safety/candidate-context", { candidateRef })
-      : safetyGet<{ sourceLabel: string; targetLabel: string; targetRef: string }>(viewer, `safety/target-context?sourceType=${sourceType}&sourceId=${sourceId}`);
-    load.then(setContext).catch(e => setError(friendlyError(e)));
-  }, [open, viewer, sourceType, sourceId, candidateRef]);
+    safetyGet<{ sourceLabel: string; targetLabel: string; targetRef: string }>(viewer, `safety/target-context?sourceType=${sourceType}&sourceId=${sourceId}`)
+      .then(setContext)
+      .catch(e => setError(friendlyError(e)));
+  }, [open, viewer, sourceType, sourceId]);
 
   if (!open) return null;
   return <Modal title="举报与屏蔽" onClose={onClose}>

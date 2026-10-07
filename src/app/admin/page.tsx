@@ -6,14 +6,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./admin.css";
 
-type Section = "overview" | "claims" | "safety" | "cases" | "users" | "events" | "rewards" | "anchors" | "system";
+type Section = "overview" | "claims" | "safety" | "cases" | "users" | "rewards" | "anchors" | "system";
 const sections: { id: Section; text: string }[] = [
   { id: "overview", text: "运行总览" },
   { id: "claims", text: "核验工作台" },
   { id: "safety", text: "安全工单" },
   { id: "cases", text: "例外与申诉" },
   { id: "users", text: "用户与关系" },
-  { id: "events", text: "活动管理" },
   { id: "rewards", text: "奖励与账本" },
   { id: "anchors", text: "存证任务" },
   { id: "system", text: "运行与审计" },
@@ -123,7 +122,6 @@ export default function AdminWorkbenchPage() {
       {section === "safety" && <SafetyPanel session={session} act={act} busy={busy} />}
       {section === "cases" && <CasesPanel act={act} busy={busy} />}
       {section === "users" && <UsersPanel />}
-      {section === "events" && <EventsPanel act={act} busy={busy} />}
       {section === "rewards" && <RewardsPanel session={session} act={act} busy={busy} />}
       {section === "anchors" && <AnchorsPanel session={session} act={act} busy={busy} />}
       {section === "system" && <SystemPanel session={session} act={act} busy={busy} />}
@@ -627,75 +625,6 @@ function CasesPanel({ act, busy }: { act: Act; busy: boolean }) {
 }
 
 // ---------- 用户与关系 ----------
-// v2.8（M03 MD-14）：活动管理小面板 —— 复用 ops 登录与审计；不提供查看匿名候选真实身份的调试列表。
-// 创建/换码返回的明文活动码仅显示一次（服务端只存摘要，审计不记明文码）。
-interface EventRow {
-  id: string; name: string; status: "open" | "paused" | "closed";
-  startsAt: number; endsAt: number; capacity: number; memberCount: number;
-  revision: number; createdAt: number; closedReason: string | null;
-}
-function EventsPanel({ act, busy }: { act: (fn: () => Promise<unknown>, okMessage?: string) => Promise<boolean>; busy: boolean }) {
-  const [rows, setRows] = useState<EventRow[] | null>(null);
-  const [err, setErr] = useState("");
-  const [name, setName] = useState("");
-  const [capacity, setCapacity] = useState(50);
-  const [hours, setHours] = useState(24);
-  const [oneTimeCode, setOneTimeCode] = useState<{ eventName: string; code: string } | null>(null);
-  const load = useCallback(() => {
-    opsGet<{ items: EventRow[] }>("events").then(d => setRows(d.items)).catch(e => setErr(e instanceof Error ? e.message : "读取失败"));
-  }, []);
-  useEffect(() => { load(); }, [load]);
-  const canManage = true; // 路由层 events.manage 权限已校验；无权限会收到服务端 403
-  return <section className="ops-panel">
-    <h1>活动管理</h1>
-    <p style={{ color: "#8B7A83", fontSize: 12 }}>状态 open / paused / closed；closed 不能重开，自然到期按关闭处理。暂停会结束活动内全部雷达与待处理铃声，恢复后用户需主动再开。换码使旧码不能加入，但不踢出现有成员。</p>
-    {err && <div className="ops-error"><span>{err}</span><button className="ops-btn ghost sm" onClick={() => setErr("")}>收起</button></div>}
-    {oneTimeCode && <div className="ops-ok">活动「{oneTimeCode.eventName}」的活动码：<b>{oneTimeCode.code}</b>（仅此一次显示，请立即转交给参与者；服务端只保存摘要）</div>}
-    {canManage && <div className="ops-card" style={{ marginBottom: 12 }}>
-      <h3>创建活动</h3>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <label>名称<input value={name} maxLength={24} placeholder="例如：周五桌游夜" onChange={e => setName(e.target.value)} /></label>
-        <label>容量<input type="number" min={2} max={50} value={capacity} onChange={e => setCapacity(Number(e.target.value))} /></label>
-        <label>时长（小时）<input type="number" min={1} max={720} value={hours} onChange={e => setHours(Number(e.target.value))} /></label>
-        <button className="ops-btn" disabled={busy || !name.trim()} onClick={() => act(async () => {
-          const now = Date.now();
-          const result = await opsPost<{ event: EventRow; code: string }>("events", { name: name.trim(), capacity, startsAt: now, endsAt: now + hours * 3600_000 });
-          setOneTimeCode({ eventName: result.event.name, code: result.code });
-          setName("");
-          load();
-        })}>创建并生成活动码</button>
-      </div>
-    </div>}
-    <table className="ops-table">
-      <thead><tr><th>活动</th><th>状态</th><th>成员/容量</th><th>时间窗</th><th>操作</th></tr></thead>
-      <tbody>
-        {(rows ?? []).map(e => <tr key={e.id}>
-          <td><b>{e.name}</b><br /><small style={{ color: "#8B7A83" }}>{e.id}</small></td>
-          <td>{e.status === "open" ? <span className="ops-badge ok">开放</span> : e.status === "paused" ? <span className="ops-badge warn">暂停</span> : <span className="ops-badge mut">已关闭{e.closedReason === "expired" ? "（到期）" : ""}</span>}</td>
-          <td>{e.memberCount} / {e.capacity}</td>
-          <td><small>{zhTime(e.startsAt)}<br />→ {zhTime(e.endsAt)}</small></td>
-          <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {e.status === "open" && <>
-              <button className="ops-btn ghost sm" disabled={busy} onClick={() => act(() => opsPost(`events/${e.id}/status`, { status: "paused", expectedRevision: e.revision }), "已暂停活动")} >暂停</button>
-              <button className="ops-btn ghost sm" disabled={busy} onClick={() => act(() => opsPost(`events/${e.id}/status`, { status: "closed", expectedRevision: e.revision }), "已关闭活动")}>关闭</button>
-            </>}
-            {e.status === "paused" && <>
-              <button className="ops-btn ghost sm" disabled={busy} onClick={() => act(() => opsPost(`events/${e.id}/status`, { status: "open", expectedRevision: e.revision }), "已恢复开放")}>恢复</button>
-              <button className="ops-btn ghost sm" disabled={busy} onClick={() => act(() => opsPost(`events/${e.id}/status`, { status: "closed", expectedRevision: e.revision }), "已关闭活动")}>关闭</button>
-            </>}
-            {e.status !== "closed" && <button className="ops-btn ghost sm" disabled={busy} onClick={() => act(async () => {
-              const result = await opsPost<{ event: EventRow; code: string }>(`events/${e.id}/rotate-code`, { expectedRevision: e.revision });
-              setOneTimeCode({ eventName: result.event.name, code: result.code });
-              load();
-            })}>换码</button>}
-          </td>
-        </tr>)}
-        {rows && rows.length === 0 && <tr><td colSpan={5} style={{ color: "#8B7A83" }}>还没有活动。</td></tr>}
-      </tbody>
-    </table>
-  </section>;
-}
-
 function UsersPanel() {
   const [users, setUsers] = useState<unknown[] | null>(null);
   const [rels, setRels] = useState<unknown[] | null>(null);

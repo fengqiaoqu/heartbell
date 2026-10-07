@@ -67,15 +67,13 @@ check("1.1f reviewer 无 config.propose 权限被服务端拒绝（403）", r.st
 // 1.2 业务准备：A/B 走到关系 + 激活相守计划（奖励 B：玫瑰券）
 await post("declare-adult", { viewer: "a" });
 await post("declare-adult", { viewer: "b" });
-for (const viewer of ["a", "b"]) await post("meet/events/join", { viewer, code: "HEARTS26" });
 for (const viewer of ["a", "b"]) {
   await post("radar", { viewer, active: true, traits: [{ category: "穿着", value: "黑色外套" }, { category: "手持物", value: "拿着咖啡" }] });
 }
-const cand0 = (await state("a")).meet.candidates[0];
-await post("ring", { viewer: "a", candidateRef: cand0.candidateRef, message: "想认识你。", idempotencyKey: "v25-bell-1" });
-const bell0 = (await state("b")).meet.bells.find(x => x.status === "pending" && x.direction === "incoming");
-const resp0 = await post("respond", { viewer: "b", bellId: bell0.id, status: "accepted" });
-const relId = (await post("relationships/propose", { viewer: "a", connectionId: resp0.json.data.connectionId })).json.data.id;
+await post("ring", { viewer: "a", message: "想认识你。" });
+const bell0 = (await state("b")).meet.bells.find(x => x.status === "pending");
+await post("respond", { viewer: "b", bellId: bell0.id, status: "accepted" });
+const relId = (await post("relationships/propose", { viewer: "a" })).json.data.id;
 await post("relationships/accept", { viewer: "b", relationshipId: relId });
 
 const planCreate = await post("plans", { viewer: "a", targetType: "marriage", rewardChoice: "B" });
