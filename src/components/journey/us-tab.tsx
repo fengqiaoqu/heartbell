@@ -106,9 +106,27 @@ export function UsTab({ view, user, busy, act, switchTab }: {
 
   return <>
     <div className={`us-hero theme-${space.theme}`}>
+      {/* v2.9：交错双环水印（Consensus Bell 轨道舞台 · 纯装饰） */}
+      <svg className="hero-rings" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient gradientUnits="userSpaceOnUse" id="hbHeroBand" x1="18" x2="102" y1="18" y2="102">
+            <stop offset="0" stopColor="#FFFFFF" /><stop offset=".35" stopColor="#F4DDE0" />
+            <stop offset=".7" stopColor="#C98877" /><stop offset="1" stopColor="#E7B7A8" />
+          </linearGradient>
+        </defs>
+        <ellipse cx="60" cy="106" fill="#252323" opacity=".06" rx="30" ry="6" />
+        <circle cx="52" cy="56" r="31" stroke="url(#hbHeroBand)" strokeWidth="7.5" />
+        <circle cx="77" cy="64" opacity=".92" r="23" stroke="url(#hbHeroBand)" strokeWidth="6" />
+        <circle cx="49" cy="26" fill="#FFFFFF" r="2.6" />
+      </svg>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <p className="eyebrow" style={{ marginTop: 0 }}>{space.name}</p>
+          <div className="us-monogram">
+            {rel.members.map(m => rel.nicknameOf?.[m] ?? m).map((name, i) => (
+              <span key={i}>{i > 0 && <em aria-hidden="true">✕</em>}{name}</span>
+            ))}
+          </div>
           <div className="us-days">{rel.status === "married" ? "已婚（应用内标记）" : space.showDays ? `我们的第 ${view.us.daysTogether ?? 1} 天` : "我们的空间"}</div>
           {space.showDays && <p className="muted">{view.us.nextAnniversaryInDays !== null ? `下一个纪念日还有 ${view.us.nextAnniversaryInDays} 天` : ""}{rel.startedAt ? ` · 自 ${zhDate(rel.startedAt)}` : ""}</p>}
         </div>
