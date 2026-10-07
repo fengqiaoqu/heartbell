@@ -40,8 +40,8 @@
 /* v2.5（反馈 4）：待确认提醒横幅 */
 .pending-banner{margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(244,221,224,.38);border:1px solid rgba(140,75,84,.14);border-radius:999px;padding:9px 8px 9px 16px;font-size:12px;color:var(--brand-deep)}
 .pending-banner b{color:var(--danger)}
-/* v2.5（反馈 4）：「我们」页待确认栏 */
-.pending-card{border-left:3px solid var(--danger)}
+/* v2.5（反馈 4）：「我们」页待确认栏（v2.9 第三轮改为建议卡风格，见文件末尾 .card.pending-card） */
+.pending-card{border-left:0}
 .pending-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .pending-head h3{margin:0;font-size:14px}
 .pending-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;border-radius:11px;background:var(--danger);color:#fff;font-size:11px;font-weight:700;padding:0 6px}
@@ -53,8 +53,8 @@
 .notice-list{display:grid;gap:8px;margin:10px 0}
 .notice-item{border:0;border-left:3px solid var(--rose-gold);border-radius:4px 16px 16px 4px;padding:10px 13px;display:grid;gap:3px;font-size:12.5px;background:var(--surface);box-shadow:0 1px 2px rgba(23,23,23,.02),0 4px 14px rgba(23,23,23,.03)}
 .notice-item small{color:var(--muted);font-size:11px;line-height:1.6}
-/* v2.5（反馈 2）：头像点开放大 */
-.avatar-zoom-trigger{position:relative;border:0;background:transparent;padding:0;cursor:zoom-in;flex-shrink:0;display:inline-flex}
+/* v2.5（反馈 2）：头像点开放大（v2.9：外圈玫瑰金渐变描边，参考稿 Avatar gradient ring） */
+.avatar-zoom-trigger{position:relative;border:0;background:linear-gradient(135deg,var(--rose-gold),var(--blush-soft) 55%,#fff);padding:2px;border-radius:50%;cursor:zoom-in;flex-shrink:0;display:inline-flex}
 .avatar-zoom-trigger i{position:absolute;right:-3px;bottom:-3px;width:17px;height:17px;border-radius:50%;background:var(--rose-gold);color:#fff;font-size:9px;font-style:normal;display:flex;align-items:center;justify-content:center;border:2px solid #fff}
 .avatar-zoom-stage{display:flex;align-items:center;justify-content:center;padding:16px 0;background:radial-gradient(circle at 50% 42%,rgba(233,143,147,.15),transparent 65%),var(--surface-low);border-radius:20px}
 /* v2.5（反馈 6）：附件上传与展示 */
@@ -335,6 +335,30 @@ table.admin-table th{color:var(--muted);font-weight:600}
 .safety-result{border:1px solid var(--line);border-radius:18px;padding:10px 13px;background:var(--surface);margin-top:8px;box-shadow:0 1px 2px rgba(23,23,23,.02)}
 .safety-scopes{display:grid;gap:6px;margin:6px 0}
 .safety-scopes .checkbox,.safety-section .checkbox{font-size:12.5px}
+
+/* ---------- v2.9 第三轮：存证模式状态条 / 共享数据条 / 待办建议卡 ---------- */
+/* 状态条：数据来自服务端 modes.chainMode（preview=琥珀静态点，链模式=绿脉冲点） */
+.sync-row{display:flex;justify-content:flex-start;margin-top:12px}
+.sync-pill{display:inline-flex;align-items:center;gap:7px;background:var(--surface-low);border-radius:999px;padding:6px 14px;font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--muted);box-shadow:0 1px 4px rgba(23,23,23,.03)}
+.sync-pill .dot{width:7px;height:7px;border-radius:50%;flex:none}
+.sync-pill .dot.green{background:var(--confirmed);animation:live-pulse 2.4s infinite}
+.sync-pill .dot.amber{background:var(--amber)}
+/* 共享数据条（参考稿 Shared Vital Statistics Bar）：白卡三栏 + 发丝分隔 + 衬线数字 */
+.stats-bar{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;margin-top:14px;background:var(--surface);border-radius:24px;padding:16px 6px;box-shadow:var(--shadow-card)}
+.stat{border:0;background:transparent;display:grid;justify-items:center;gap:1px;cursor:pointer;font:inherit;color:var(--ink);padding:4px 6px;transition:transform .15s}
+.stat:active{transform:scale(.96)}
+.stat b{font-family:var(--font-serif);font-weight:500;font-size:26px;line-height:1.15;color:var(--ink)}
+.stat b em{font-style:normal;font-size:11px;color:var(--muted);margin-left:3px;font-family:var(--font-sans);font-weight:400}
+.stat>span{font-size:11.5px;color:var(--muted)}
+.stat small{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);letter-spacing:.02em;margin-top:3px}
+.stat small i{width:6px;height:6px;border-radius:50%;flex:none}
+.st-rose{background:var(--rose-gold)}
+.st-sage{background:var(--confirmed)}
+.st-amber{background:var(--amber)}
+.stat-divider{width:1px;background:var(--surface-high);margin:2px 0}
+/* 待确认卡 → 参考稿 Agent Suggestion Card：暖渐变 + ✦ 徽章（须晚于 .card 声明以覆盖底色） */
+.card.pending-card{background:linear-gradient(160deg,var(--surface),rgba(248,242,242,.75));box-shadow:0 1px 2px rgba(23,23,23,.03),0 8px 20px rgba(201,136,119,.07)}
+.pending-head h3::before{content:"✦ ";color:var(--rose-accent)}
 
 /* ---------- 响应式：360–430px 单列不溢出；桌面居中 ---------- */
 @media (max-width:480px){

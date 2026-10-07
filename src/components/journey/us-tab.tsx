@@ -141,6 +141,27 @@ export function UsTab({ view, user, busy, act, switchTab }: {
       </div>
     </div>
 
+    {/* v2.9：共享数据条（参考稿 Shared Vital Statistics Bar · 计数全部来自现有视图，点击联动筛选） */}
+    <div className="stats-bar">
+      <button type="button" className="stat" onClick={() => setFilter("diary")}>
+        <b className="num">{allTimeline.filter(t => t.type === "diary").length}</b>
+        <span>共同日记</span>
+        <small><i className="st-rose" aria-hidden="true" />我们的故事</small>
+      </button>
+      <div className="stat-divider" aria-hidden="true" />
+      <button type="button" className="stat" onClick={() => setFilter("promise")}>
+        <b className="num">{view.us.promises.length}</b>
+        <span>重要承诺</span>
+        <small><i className="st-sage" aria-hidden="true" />{view.us.promises.some(p => p.status === "active") ? "履行中" : "已立下"}</small>
+      </button>
+      <div className="stat-divider" aria-hidden="true" />
+      <button type="button" className="stat" onClick={() => switchTab("future")}>
+        <b className="num">{view.future.plan?.investedTotal ?? 0}<em>点</em></b>
+        <span>相守托管</span>
+        <small><i className="st-amber" aria-hidden="true" />{view.future.plan ? "共同成长" : "待开启"}</small>
+      </button>
+    </div>
+
     {/* v2.7：新增入口固定在列表上方（实测 200 条后按钮沉到 2 万像素深，找不到入口）。 */}
     <div className="us-create-bar">
       <button className="diary-new" onClick={() => setCreating(true)}>＋ 写下今天</button>

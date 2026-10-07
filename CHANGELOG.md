@@ -52,6 +52,14 @@
 - **选中态描边加粗**：选择卡片（短语/类型/图片/头像/主题）选中态统一为 2px 玫瑰金描边（参考稿 Interest Tiles 的 2.5pt 选中框）。
 - 细节：`::selection` 腮红高亮、履约分 38px 细衬线、玫瑰券票根投影、落地页 46px 细衬线标题、登录卡 28px 无边框。
 
+### 6. 第三轮：参考稿剩余签名组件的"诚实"移植（仍零业务逻辑改动）
+
+- **存证模式状态条**（`app-shell.tsx`）：顶栏下方新增状态胶囊——preview 模式显示琥珀点 +「存证预览模式 · 本地承诺指纹」，链模式（bot_testnet/bot_mainnet）显示绿脉冲点 +「BOT 测试网/主网 · 存证同步中」。数据来自服务端 `modes.chainMode`，是真实运行状态而非装饰，不再有假数据顾虑。
+- **共享数据条**（`us-tab.tsx`，参考稿 Shared Vital Statistics Bar）：「我们」轨道舞台下新增三栏白卡——共同日记数 / 重要承诺数 / 相守托管点数，衬线大数字 + 发丝竖线分隔 + 彩点副标签（玫瑰金=故事、鼠尾草=履行中、琥珀=共同成长）。计数全部来自现有视图（`us.timeline`/`us.promises`/`future.plan.investedTotal`）；点击联动既有交互（切筛选/切相守栏），无新增接口或状态。
+- **待确认卡 → 建议卡风格**（参考稿 Agent Suggestion Card）：`.pending-card` 改暖渐变底 + 柔和玫瑰光影，标题前加 ✦ 玫瑰星形徽章（`::before`，纯 CSS）；红色计数徽章保留作紧急度提示。
+- **头像玫瑰金渐变描边**：所有可放大头像（了解页连接卡、我的资料）外圈加玫瑰金渐变圆环（参考稿 Avatar gradient ring）。
+- 顺带修复：v2.9 第一轮起 `.card` 的 `border:0` 声明顺序意外覆盖了待确认卡的红色左边框——本轮改为渐变建议卡后一并消除该隐患（`.card.pending-card` 显式提升优先级）。
+
 ### 不变的部分（协作者重点）
 
 - **零业务逻辑改动**：`git diff` 仅涉及 `globals.css`、`modules.css`、`login.css`、`layout.tsx`（字体链接）、`app-shell.tsx`（一个装饰性 `live-dot` span）、`package.json`（版本号）、`README.md`/`CHANGELOG.md`（文档）。

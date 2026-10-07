@@ -139,6 +139,13 @@ export function JourneyShell({ user }: { user: "a" | "b" | "c" }) {
     </header>
     <div className="phone-scroll" ref={scroll}>
       {error && <ErrorBanner message={error} onDismiss={() => setError("")} />}
+      {/* v2.9：存证模式状态条（数据来自服务端 modes.chainMode，非装饰） */}
+      {view && <div className="sync-row" role="status">
+        <span className="sync-pill">
+          <i className={`dot ${view.modes.chainMode === "preview" ? "amber" : "green"}`} aria-hidden="true" />
+          {view.modes.chainMode === "preview" ? "存证预览模式 · 本地承诺指纹" : view.modes.chainMode === "bot_testnet" ? "BOT 测试网 · 存证同步中" : "BOT 主网 · 存证同步中"}
+        </span>
+      </div>}
       {/* v2.5：维护公告（后台「运行与审计 → 功能与公告」发布，服务端同步执行限制） */}
       {view?.publicMaintenance?.notice && <div className="maintenance-banner" role="status">📢 {view.publicMaintenance.notice}</div>}
       {/* v2.5（反馈 4）：有待确认事项时的提醒横幅 */}
