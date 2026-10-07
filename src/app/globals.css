@@ -1,54 +1,85 @@
-/* 心动铃铛 V2 · 奶油色手账 + 玫瑰红印章（计划书 7.1 节视觉规格） */
+/* 心动铃铛 V2.9 · Consensus Bell 设计系统
+ * 视觉规格来自《stitch_consensus_bell_design_system》：
+ * 暖雾极简（Atmospheric Warm Minimalism）——奶油底、墨色正文、玫瑰主行动、
+ * 鼠尾草绿=双方共识、琥珀=待对方回应、深玫红=仅限解除类操作。
+ * 衬线（Noto Serif）承载标题与誓言，无衬线（Inter/PingFang）承载状态与表单。
+ * 变量名沿用 v2 旧名（--brand/--ink/--muted…）以便存量样式平滑过渡，新增语义令牌见下。
+ */
 :root {
-  --bg: #FFF8F3;
-  --surface: #FFFFFF;
-  --brand: #B94360;
-  --brand-deep: #93324B;
-  --brand-soft: #FBE8ED;
-  --ink: #352B30;
-  --muted: #786971;
-  --line: #ECDCE1;
-  --success: #27684F;
-  --success-soft: #E7F2EC;
-  --warning: #8C5B17;
-  --warning-soft: #F9EFDC;
-  --danger: #A72C43;
-  --danger-soft: #FBE7EB;
-  --paper: #FFFDF9;
-  --radius-card: 20px;
-  --radius-button: 14px;
-  --shadow-card: 0 8px 28px rgb(69 34 47 / 6%);
-  --shadow-sheet: 0 20px 80px rgb(69 34 47 / 24%);
-  --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
-  --font-sans: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* 画布与表面 */
+  --bg: #FFF9F7;              /* background-cream：细棉纸奶油底 */
+  --surface: #FFFFFF;         /* 高浮卡片 / 弹层 */
+  --paper: #FFFFFF;
+  --surface-low: #F8F2F2;     /* surface-container-low */
+  --surface-container: #F2ECEC;
+  --surface-high: #EDE7E6;
+  --surface-highest: #E7E1E1;
+  /* 玫瑰族（主行动 / 亲密高亮） */
+  --brand: #8C4B54;           /* primary：链接、活动态文字 */
+  --brand-deep: #70343D;      /* on-primary-fixed-variant：强调文字 */
+  --brand-soft: #F4DDE0;      /* blush-tint */
+  --rose: #D98C95;            /* primary-container：主按钮底 */
+  --rose-deep: #C97F88;       /* 主按钮 hover */
+  --rose-accent: #E98F93;     /* 小圆点 / 心形点缀 */
+  --rose-gold: #C98877;       /* secondary：恒久承诺、指环金属 */
+  --blush-tint: #F4DDE0;
+  --blush-soft: #E7B7A8;
+  /* 墨色（避免纯黑） */
+  --ink: #171717;             /* ink-primary */
+  --ink-2: #252323;           /* ink-secondary */
+  --muted: #524344;           /* on-surface-variant */
+  --outline: #857374;
+  --outline-variant: #D7C1C3;
+  --line: rgba(23, 23, 23, 0.08);      /* 发丝线 */
+  --line-strong: rgba(23, 23, 23, 0.12);
+  /* 状态色 */
+  --success: #2E9E63;         /* sage-deep：已共识 */
+  --confirmed: #4ECF8B;       /* confirmed-green：脉冲点 / 完成节点 */
+  --success-soft: #E9F6EF;
+  --warning: #B8732F;         /* pending-dark：待对方回应 */
+  --amber: #F2A65A;           /* pending-amber */
+  --warning-soft: #FBF1E5;
+  --danger: #C0646A;          /* destructive-rose：仅限解除 / 撤回 / 归档 */
+  --danger-soft: #F9EDEE;
+  /* 形状与高度 */
+  --radius-card: 20px;        /* 包容性容器 20–24px */
+  --radius-sheet: 24px;
+  --radius-button: 9999px;    /* 胶囊原型 */
+  --shadow-card: 0 1px 2px rgba(23, 23, 23, 0.03), 0 8px 24px rgba(23, 23, 23, 0.04);
+  --shadow-sheet: 0 4px 12px rgba(23, 23, 23, 0.04), 0 20px 48px rgba(23, 23, 23, 0.08);
+  --shadow-rose: 0 4px 16px rgba(217, 140, 149, 0.35);
+  --shadow-ring: 0 12px 32px rgba(217, 140, 149, 0.18);
+  /* 字体：标题衬线，正文无衬线 */
+  --font-serif: "Noto Serif SC", "Noto Serif", "Source Han Serif SC", "Songti SC", Georgia, serif;
+  --font-sans: "Inter", "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 15% 8%, #FBE8ED, transparent 42%),
-    radial-gradient(circle at 88% 92%, #F7E8DE, transparent 45%),
+    radial-gradient(circle at 14% 6%, rgba(233, 143, 147, 0.07), transparent 40%),
+    radial-gradient(circle at 88% 94%, rgba(231, 183, 168, 0.10), transparent 44%),
     var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14.5px;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--brand); }
-h1, h2, h3, .serif { font-family: var(--font-serif); font-weight: 700; }
-h1 { font-size: 28px; line-height: 36px; margin: 10px 0 8px; letter-spacing: 0.5px; }
+h1, h2, h3, .serif { font-family: var(--font-serif); font-weight: 500; color: var(--ink); }
+h1 { font-size: 28px; line-height: 38px; margin: 10px 0 8px; letter-spacing: -0.01em; }
 h2 { font-size: 20px; line-height: 28px; margin: 0 0 10px; }
-h3 { font-size: 17px; margin: 0 0 6px; }
-p { margin: 6px 0; font-size: 15px; line-height: 24px; }
+h3 { font-size: 16.5px; margin: 0 0 6px; letter-spacing: 0.01em; }
+p { margin: 6px 0; font-size: 14px; line-height: 1.65; }
 .num, .date, .points { font-variant-numeric: tabular-nums; }
-.muted { color: var(--muted); font-size: 12px; line-height: 18px; }
+.muted { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .center { text-align: center; }
 .pink { color: var(--brand); }
-.eyebrow { font-size: 11px; letter-spacing: 3px; color: var(--brand); margin: 22px 0 2px; font-weight: 600; }
-.error-banner { color: var(--danger); background: var(--danger-soft); border: 1px solid #F2C7D0; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.6; margin: 10px 0; display: flex; gap: 8px; align-items: flex-start; }
+.eyebrow { font-size: 11px; letter-spacing: 0.18em; color: var(--brand); margin: 22px 0 2px; font-weight: 600; }
+.error-banner { color: var(--danger); background: var(--danger-soft); border: 1px solid rgba(192, 100, 106, 0.22); padding: 10px 14px; border-radius: 14px; font-size: 13px; line-height: 1.6; margin: 10px 0; display: flex; gap: 8px; align-items: flex-start; }
 .error-banner button { margin-left: auto; flex-shrink: 0; }
-:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 6px; }
+:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--rose-accent); outline-offset: 3px; border-radius: 6px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

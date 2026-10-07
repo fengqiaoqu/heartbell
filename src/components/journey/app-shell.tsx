@@ -126,7 +126,7 @@ export function JourneyShell({ user }: { user: "a" | "b" | "c" }) {
 
   return <PhoneFrame>
     <header className="app-header">
-      <div className="brand"><HeartbellLogo size={32} /><span>心动铃铛<small>{view?.me.profile.nickname ?? "…"} · 演示窗口 {user.toUpperCase()}</small></span></div>
+      <div className="brand"><HeartbellLogo size={32} /><i className="live-dot" aria-hidden="true" /><span>心动铃铛<small>{view?.me.profile.nickname ?? "…"} · 演示窗口 {user.toUpperCase()}</small></span></div>
       <div className="header-actions">
         <button className="bell-button" aria-label={`站内提醒（${unread.length} 条未读）`} onClick={() => setNoticeOpen(true)}>
           <BellIcon />
