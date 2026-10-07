@@ -4,19 +4,19 @@
  * 不用深重投影）、磨砂玻璃底栏、输入胶囊壳、贴底抽屉弹层；选择器与 v2.8 完全兼容。
  */
 
-/* ---------- 手机壳 ---------- */
-.phone{display:flex;flex-direction:column;height:min(880px,calc(100dvh - 28px));min-height:0;max-width:440px;margin:14px auto;padding:10px 0 0;background:var(--bg);border:8px solid #fff;border-radius:44px;box-shadow:0 1px 2px rgba(23,23,23,.04),0 24px 64px rgba(23,23,23,.10);overflow:hidden}
-.notch{width:90px;height:5px;border-radius:9px;background:var(--surface-highest);margin:0 auto 10px;flex-shrink:0}
+/* ---------- 应用列（v2.9 第四轮：去掉手机壳边框与刘海，靠拢参考稿的纯净移动 Web） ---------- */
+.phone{display:flex;flex-direction:column;height:min(880px,calc(100dvh - 28px));min-height:0;max-width:430px;margin:14px auto;padding:0 0 0;background:var(--bg);border:0;border-radius:36px;box-shadow:0 1px 2px rgba(23,23,23,.03),0 24px 64px rgba(23,23,23,.10);overflow:hidden}
+.notch{display:none}
 
 /* ---------- 顶栏（奶油磨砂 · 64pt） ---------- */
-.app-header{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:64px;padding:6px 20px 12px;background:rgba(255,249,247,.86);backdrop-filter:blur(20px);box-shadow:0 1px 8px rgba(23,23,23,.03);flex-shrink:0}
+.app-header{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:64px;padding:6px 24px 12px;background:rgba(255,249,247,.86);backdrop-filter:blur(20px);box-shadow:0 1px 8px rgba(23,23,23,.03);flex-shrink:0}
 .app-header .brand{display:flex;align-items:center;gap:9px;font-family:var(--font-serif);font-weight:500;font-size:18px;color:var(--ink);letter-spacing:.01em}
 .app-header .brand small{display:block;font-family:var(--font-sans);font-weight:400;font-size:10px;color:var(--muted);letter-spacing:.06em;margin-top:2px}
 /* v2.9：品牌旁的绿色脉冲点 —— 服务在线/轮询进行中的轻量暗示 */
 .live-dot{width:7px;height:7px;border-radius:50%;background:var(--confirmed);box-shadow:0 0 0 0 rgba(78,207,139,.45);animation:live-pulse 2.4s infinite;flex-shrink:0}
 @keyframes live-pulse{50%{box-shadow:0 0 0 6px rgba(78,207,139,0)}}
 .hb-logo{width:36px;height:36px;object-fit:contain;flex:none;user-select:none}
-.hb-art{width:min(240px,62%);height:auto;display:block;margin:6px auto 0;object-fit:contain;user-select:none;pointer-events:none;filter:drop-shadow(0 8px 22px rgba(217,140,149,.16))}
+.hb-art{width:min(190px,46%);height:auto;display:block;margin:8px auto 0;object-fit:contain;user-select:none;pointer-events:none;opacity:.96;filter:drop-shadow(0 8px 22px rgba(217,140,149,.14))}
 .hb-art.wide{width:100%;margin:0}
 .hb-ring{animation:hb-ring .6s ease-in-out;transform-origin:50% 60%}
 .hb-enter{animation:hb-enter .3s ease-out both}
@@ -28,8 +28,9 @@
 .avatar-button .dot{position:absolute;right:0;top:0;width:9px;height:9px;border-radius:50%;background:var(--rose-accent);border:2px solid #fff}
 /* v2.5：顶栏（铃铛 + 头像） */
 .header-actions{display:flex;align-items:center;gap:10px}
-.bell-button{position:relative;width:40px;height:40px;border-radius:50%;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 1px 3px rgba(23,23,23,.04);transition:transform .18s,color .18s}
-.bell-button:hover{color:var(--brand)}
+/* v2.9 第四轮：顶栏图标按钮改参考稿幽灵圆钮（透明底，悬停浮浅底） */
+.bell-button{position:relative;width:40px;height:40px;border-radius:50%;border:0;background:transparent;color:rgba(37,35,35,.7);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .18s,color .18s,background .18s}
+.bell-button:hover{color:var(--ink);background:var(--surface-low)}
 .bell-button:active{transform:scale(.95)}
 .bell-button svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .badge-num{position:absolute;right:-5px;top:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--danger);color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid #fff;font-style:normal}
@@ -68,7 +69,7 @@ a.file-chip:hover{border-color:var(--rose)}
 /* v2.5：相守页补正表单 */
 .supplement-box{margin-top:10px;border:1px dashed rgba(184,115,47,.4);background:var(--warning-soft);border-radius:16px;padding:12px 13px;font-size:12.5px}
 .supplement-box .button{min-height:40px;padding:8px 16px;font-size:12.5px}
-.phone-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 20px 24px;scrollbar-width:thin;scrollbar-color:var(--surface-highest) transparent}
+.phone-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 24px 28px;scrollbar-width:thin;scrollbar-color:var(--surface-highest) transparent}
 
 /* ---------- 底部导航（磨砂玻璃 64pt + 玫瑰活动点） ---------- */
 .bottom-nav{display:flex;flex-shrink:0;min-height:64px;padding:11px 6px max(14px,env(safe-area-inset-bottom));background:rgba(255,255,255,.88);backdrop-filter:blur(20px);box-shadow:0 -4px 24px rgba(23,23,23,.04)}
@@ -110,8 +111,8 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--rose);bo
 .chip.warning{color:var(--warning);background:var(--warning-soft)}
 .chip.danger{color:var(--danger);background:var(--danger-soft)}
 .chip.outline{background:transparent;border:1px dashed var(--outline-variant);color:var(--outline)}
-.empty-state{text-align:center;color:var(--ink);font-size:15px;padding:48px 12px;line-height:1.9}
-.empty-state span{display:block;color:var(--muted);font-size:12px;margin-top:6px;line-height:1.7}
+.empty-state{text-align:center;color:var(--ink);font-family:var(--font-serif);font-size:16px;padding:48px 12px;line-height:1.9}
+.empty-state span{display:block;font-family:var(--font-sans);color:var(--muted);font-size:12px;margin-top:6px;line-height:1.7}
 .empty-state.compact{padding:22px 8px;font-size:13px}
 .status-line{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 
@@ -252,9 +253,10 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--rose);bo
 .claim-steps .step-dot{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--outline-variant);background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;z-index:1}
 .claim-steps div.done .step-dot{border-color:var(--success);background:var(--success-soft);color:var(--success)}
 
-/* ---------- 证据抽屉 ---------- */
-.evidence-rows{display:grid;gap:8px;margin-top:8px}
-.evidence-rows .row{display:grid;grid-template-columns:88px 1fr;gap:8px;font-size:12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+/* ---------- 证据抽屉（v2.9 第四轮：整组装入浅底圆角容器，参考稿 Proof 详情行） ---------- */
+.evidence-rows{display:grid;gap:8px;margin-top:10px;background:var(--surface-low);border-radius:16px;padding:6px 14px}
+.evidence-rows .row{display:grid;grid-template-columns:88px 1fr;gap:8px;font-size:12px;border-bottom:1px solid var(--line);padding:9px 0}
+.evidence-rows .row:last-child{border-bottom:0}
 .evidence-rows .row b{color:var(--muted);font-weight:600}
 .evidence-rows .row span{word-break:break-all;font-variant-numeric:tabular-nums}
 
@@ -279,8 +281,12 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--rose);bo
 .attachment-preview{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .attachment-preview span{font-size:11px;background:var(--surface-low);border-radius:999px;padding:4px 10px;color:var(--muted)}
 .trait-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px}
-.demo-details{margin-top:18px;font-size:11.5px;line-height:1.8;color:var(--muted)}
-.demo-details summary{cursor:pointer;list-style-position:inside;font-size:11.5px}
+.demo-details{margin-top:20px;font-size:11px;line-height:1.8;color:var(--muted)}
+.demo-details summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.02em;color:var(--muted);background:var(--surface-low);border-radius:999px;padding:6px 14px}
+.demo-details[open] summary{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.demo-details summary::-webkit-details-marker{display:none}
+.demo-details summary::after{content:"▾";font-size:9px;color:var(--outline)}
+.demo-details[open] summary::after{content:"▴"}
 .address{overflow-wrap:anywhere;font-size:11px;line-height:1.7;color:var(--muted)}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:11px}
 .quote-sm{font-family:var(--font-serif);color:var(--ink-2);font-size:14px;line-height:1.7}
