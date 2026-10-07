@@ -77,7 +77,11 @@ export function CheckIcon() {
   return <Icon><path d="m5 12 4 4L19 6" /></Icon>;
 }
 export function ClockIcon() {
-  return <Icon><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Icon>;
+  return <Icon><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Icon>
+}
+// v2.9：状态条同步圆钮图标（参考稿 Sync Contract State）
+export function RefreshIcon() {
+  return <Icon><path d="M21 12a9 9 0 1 1-3.2-6.9L21 8" /><path d="M21 3v5h-5" /></Icon>
 }
 
 // 三维度状态（计划书 7.5）：业务 / 存证 / 来源 分开呈现，不用一个对勾包办。

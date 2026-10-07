@@ -3,7 +3,7 @@
 // A/B 双窗口状态独立；?tab= 保存当前栏目，返回和刷新恢复位置。
 // v2.5：站内通知铃铛（反馈 4）、「我们」栏红色数字角标、维护公告横幅（后台发布）。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PhoneFrame, Button, ErrorBanner, Avatar, BellIcon, BookIcon, ChatIcon, GiftIcon, HeartbellLogo } from "../ui";
+import { PhoneFrame, Button, ErrorBanner, Avatar, BellIcon, BookIcon, ChatIcon, GiftIcon, HeartIcon, RefreshIcon } from "../ui";
 import { Modal } from "../modal";
 import { fetchState, friendlyError, postV2, V2ApiError } from "../../lib/client/v2-api";
 import type { NotificationDto, V2StateView } from "../../lib/domain/view-dtos";
@@ -32,6 +32,7 @@ export function JourneyShell({ user }: { user: "a" | "b" | "c" }) {
   const [ringOpen, setRingOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [reportBellOpen, setReportBellOpen] = useState(false); // v2.6：举报匿名铃声来源
+  const [syncSpin, setSyncSpin] = useState(false); // v2.9：状态条同步圆钮的旋转反馈
   const [message, setMessage] = useState(phrases[0]);
   const [postponed, setPostponed] = useState<string[]>([]);
   const [sessionLost, setSessionLost] = useState(false); // v2.6：会话失效后停止轮询并回登录页
@@ -121,12 +122,19 @@ export function JourneyShell({ user }: { user: "a" | "b" | "c" }) {
     catch { /* 下次轮询再同步 */ }
   }, [user, refresh]);
 
+  // v2.9：状态条同步圆钮 —— 立即拉取一次状态并给 0.9s 旋转反馈（复用既有轮询函数）
+  const syncNow = useCallback(() => {
+    setSyncSpin(true);
+    void refresh().catch(() => {});
+    setTimeout(() => setSyncSpin(false), 900);
+  }, [refresh]);
+
   const needsAdult = view && !view.me.adultDeclared;
   void needsAdult;
 
   return <PhoneFrame>
     <header className="app-header">
-      <div className="brand"><HeartbellLogo size={32} /><i className="live-dot" aria-hidden="true" /><span>心动铃铛<small>{view?.me.profile.nickname ?? "…"} · 演示窗口 {user.toUpperCase()}</small></span></div>
+      <div className="brand"><i className="live-dot" aria-hidden="true" /><span className="brand-name">心动铃铛<small>{view?.me.profile.nickname ?? "…"} · 演示窗口 {user.toUpperCase()}</small></span></div>
       <div className="header-actions">
         <button className="bell-button" aria-label={`站内提醒（${unread.length} 条未读）`} onClick={() => setNoticeOpen(true)}>
           <BellIcon />
@@ -139,12 +147,15 @@ export function JourneyShell({ user }: { user: "a" | "b" | "c" }) {
     </header>
     <div className="phone-scroll" ref={scroll}>
       {error && <ErrorBanner message={error} onDismiss={() => setError("")} />}
-      {/* v2.9：存证模式状态条（数据来自服务端 modes.chainMode，非装饰） */}
+      {/* v2.9：存证模式状态条（数据来自服务端 modes.chainMode，非装饰）+ 同步圆钮 */}
       {view && <div className="sync-row" role="status">
         <span className="sync-pill">
           <i className={`dot ${view.modes.chainMode === "preview" ? "amber" : "green"}`} aria-hidden="true" />
           {view.modes.chainMode === "preview" ? "存证预览模式 · 本地承诺指纹" : view.modes.chainMode === "bot_testnet" ? "BOT 测试网 · 存证同步中" : "BOT 主网 · 存证同步中"}
         </span>
+        <button type="button" className={`sync-refresh${syncSpin ? " spinning" : ""}`} aria-label="立即同步" onClick={syncNow}>
+          <RefreshIcon />
+        </button>
       </div>}
       {/* v2.5：维护公告（后台「运行与审计 → 功能与公告」发布，服务端同步执行限制） */}
       {view?.publicMaintenance?.notice && <div className="maintenance-banner" role="status">📢 {view.publicMaintenance.notice}</div>}
@@ -183,6 +194,11 @@ export function JourneyShell({ user }: { user: "a" | "b" | "c" }) {
           </span>{text}
         </button>
       ))}
+      {/* v2.9：第五栏「我的」（参考稿 5-Tab：Ring/Story/Vow/Bond/Me）——打开既有我的抽屉 */}
+      <button aria-label="打开我的资料" aria-current={meOpen ? "page" : undefined} className={meOpen ? "active" : ""}
+        onClick={() => setMeOpen(true)}>
+        <span><HeartIcon /></span>我的
+      </button>
     </nav>
 
     <MeDrawer open={meOpen} onClose={() => setMeOpen(false)} view={view} busy={busy} act={act} />

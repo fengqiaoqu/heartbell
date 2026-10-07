@@ -35,7 +35,7 @@ export function EvidenceDrawer({
     {anchor?.error && <p className="muted" style={{ marginTop: 8 }}>{anchor.error}</p>}
     <p className="muted" style={{ marginTop: 8 }}>链上登记的是带独立随机秘密的内容承诺（commitment），不含日记正文、证件、参与者钱包或普通签名。preview 模式未连接真实链，不会生成模拟交易链接。</p>
     {onRetry && anchor?.chainStatus === "failed" && <Button className="secondary" onClick={onRetry}>重试存证（恢复同一任务）</Button>}
-    {onExport && anchor && <Button className="ghost" onClick={onExport}>导出证据包（含隐私数据，仅自行保存）</Button>}
+    {onExport && anchor && <Button className="ink" onClick={onExport}>导出证据包（含隐私数据，仅自行保存）</Button>}
   </Modal>;
 }
 

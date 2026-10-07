@@ -94,6 +94,9 @@ a.file-chip:hover{border-color:var(--rose)}
 .button.ghost:not(:disabled):hover{background:var(--surface-container);box-shadow:none}
 .button.danger{background:rgba(192,100,106,.08);color:var(--danger);box-shadow:none}
 .button.danger:not(:disabled):hover{background:rgba(192,100,106,.15);box-shadow:none}
+/* v2.9 第五轮：墨色主行动胶囊（参考稿 ink 按钮，用于导出证据等终端动作） */
+.button.ink{background:var(--ink);color:#fff;box-shadow:0 4px 16px rgba(23,23,23,.18)}
+.button.ink:not(:disabled):hover{background:#000;box-shadow:0 6px 20px rgba(23,23,23,.22)}
 .button.small{min-height:38px;padding:8px 16px;font-size:12px;width:auto;display:inline-flex;margin-top:0}
 .text-button{display:inline;border:0;background:transparent;color:var(--brand);cursor:pointer;font-size:12px;padding:0 2px;font-weight:600}
 /* 输入胶囊壳（参考稿 input pill shells）；多行/下拉用 16–20px 圆角 */
@@ -157,18 +160,30 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--rose);bo
 .trust-meta b{display:block;font-size:16px}
 .trust-meta small{font-size:10px;color:var(--muted)}
 
-/* ---------- 我们 · 轨道关系舞台（Orbital Relationship Stage） ---------- */
-.us-hero{margin-top:14px;border-radius:var(--radius-card);padding:22px 20px 18px;background:linear-gradient(180deg,var(--surface) 0%,rgba(248,242,242,.55) 55%,var(--surface) 100%);border:0;position:relative;overflow:hidden;box-shadow:0 1px 2px rgba(23,23,23,.03),0 12px 32px rgba(217,140,149,.10);min-height:150px}
+/* ---------- 我们 · 轨道关系舞台（v2.9 第五轮：居中重构，参考稿 Orbital Relationship Stage） ---------- */
+.us-hero{margin-top:14px;border-radius:var(--radius-card);padding:22px 20px 18px;background:linear-gradient(180deg,var(--surface) 0%,rgba(248,242,242,.55) 55%,var(--surface) 100%);border:0;position:relative;overflow:hidden;box-shadow:0 1px 2px rgba(23,23,23,.03),0 12px 32px rgba(217,140,149,.10);text-align:center;display:flex;flex-direction:column;align-items:center}
 /* 环境辉光（玫瑰弥散）+ 玫瑰金虚线轨道环 */
 .us-hero::before{content:"";position:absolute;right:-56px;top:-52px;width:210px;height:210px;border-radius:50%;background:radial-gradient(circle,rgba(233,143,147,.16),transparent 68%);pointer-events:none}
 .us-hero::after{content:"";position:absolute;right:-40px;top:-46px;width:150px;height:150px;border-radius:50%;border:1px dashed rgba(201,136,119,.42);pointer-events:none}
 .us-hero>*{position:relative}
-/* 交错双环水印（JSX 装饰性 SVG，纯展示） */
-.hero-rings{position:absolute;right:20px;top:50%;transform:translateY(-46%);width:104px;height:104px;opacity:.6;pointer-events:none;filter:drop-shadow(0 10px 20px rgba(201,136,119,.28))}
-.us-hero>div:first-child>div:first-child{padding-right:96px}
-.us-monogram{font-family:var(--font-serif);font-size:14.5px;letter-spacing:.04em;color:var(--ink-2);margin:1px 0 2px}
-.us-monogram em{font-style:normal;color:var(--rose-gold);padding:0 2px}
-.us-days{font-size:38px;font-family:var(--font-serif);color:var(--ink);font-weight:400;letter-spacing:-.01em;line-height:1.25}
+/* 设置入口：右上角轻量文字钮（机制保留） */
+.hero-actions{position:absolute;top:14px;right:16px;display:grid;gap:2px;justify-items:end}
+/* 双人头像 + 中心心形 */
+.hero-couple{display:flex;align-items:center;gap:10px;justify-content:center;margin:10px 0 6px}
+.hero-avatar{border-radius:50%;padding:2.5px;background:linear-gradient(135deg,var(--rose-gold),var(--blush-soft) 55%,#fff);box-shadow:0 4px 12px rgba(201,136,119,.25)}
+.hero-heart{width:32px;height:32px;border-radius:50%;background:rgba(244,221,224,.6);color:var(--brand);display:flex;align-items:center;justify-content:center;flex:none}
+.hero-heart svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.us-monogram{font-family:var(--font-serif);font-size:15px;letter-spacing:.04em;color:var(--ink);margin:0}
+.us-monogram em{font-style:normal;color:var(--rose-gold);padding:0 3px}
+.hero-sublabel{font-size:10px;letter-spacing:.16em;color:rgba(37,35,35,.55);margin:3px 0 0;font-weight:600}
+/* 指环舞台：大号交错双环 + 永恒刻面脉冲 + bound 胶囊 */
+.hero-stage{position:relative;display:flex;flex-direction:column;align-items:center;margin:10px 0 8px}
+.hero-rings{width:150px;height:150px;opacity:.96;filter:drop-shadow(0 12px 24px rgba(201,136,119,.35))}
+.hero-rings .gem{animation:gem-pulse 2.4s ease-in-out infinite}
+@keyframes gem-pulse{50%{opacity:.3}}
+.hero-bound{position:absolute;bottom:2px;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);border-radius:999px;padding:4px 13px;font-size:10.5px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(23,23,23,.07)}
+.hero-bound i{width:6px;height:6px;border-radius:50%;background:var(--confirmed)}
+.us-days{font-size:36px;font-family:var(--font-serif);color:var(--ink);font-weight:400;letter-spacing:-.01em;line-height:1.25}
 .us-hero .eyebrow{margin-top:0;color:var(--rose-gold)}
 /* v2.2 空间主题（5 款官方主题，仅影响外观，不影响任何规则与存证） */
 .us-hero.theme-sakura{background:linear-gradient(180deg,var(--surface) 0%,rgba(236,228,246,.5) 55%,var(--surface) 100%)}
@@ -207,8 +222,8 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--rose);bo
 .timeline-item{display:flex;gap:11px;width:100%;text-align:left;border:0;background:var(--surface);border-radius:var(--radius-inner);padding:13px 14px;cursor:pointer;font:inherit;color:var(--ink);box-shadow:0 1px 2px rgba(23,23,23,.02),0 6px 18px rgba(23,23,23,.035);transition:box-shadow .18s,transform .15s}
 .timeline-item:hover{box-shadow:var(--shadow-card-lift)}
 .timeline-item:active{transform:scale(.99)}
-.timeline-item .t-icon{flex-shrink:0;width:38px;height:38px;border-radius:50%;background:var(--brand-soft);display:flex;align-items:center;justify-content:center}
-.timeline-item .t-icon svg{width:19px;height:19px;stroke:var(--brand);fill:none;stroke-width:1.6}
+.timeline-item .t-icon{flex-shrink:0;width:48px;height:48px;border-radius:16px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center}
+.timeline-item .t-icon svg{width:21px;height:21px;stroke:var(--brand);fill:none;stroke-width:1.6}
 .timeline-item .t-main{flex:1;min-width:0;display:grid;gap:3px}
 .timeline-item strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-serif);font-weight:500}
 .timeline-item small{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -343,12 +358,18 @@ table.admin-table th{color:var(--muted);font-weight:600}
 .safety-scopes .checkbox,.safety-section .checkbox{font-size:12.5px}
 
 /* ---------- v2.9 第三轮：存证模式状态条 / 共享数据条 / 待办建议卡 ---------- */
-/* 状态条：数据来自服务端 modes.chainMode（preview=琥珀静态点，链模式=绿脉冲点） */
-.sync-row{display:flex;justify-content:flex-start;margin-top:12px}
+/* 状态条：数据来自服务端 modes.chainMode（preview=琥珀静态点，链模式=绿脉冲点）+ 同步圆钮 */
+.sync-row{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
 .sync-pill{display:inline-flex;align-items:center;gap:7px;background:var(--surface-low);border-radius:999px;padding:6px 14px;font-size:11px;font-weight:600;letter-spacing:.02em;color:var(--muted);box-shadow:0 1px 4px rgba(23,23,23,.03)}
 .sync-pill .dot{width:7px;height:7px;border-radius:50%;flex:none}
 .sync-pill .dot.green{background:var(--confirmed);animation:live-pulse 2.4s infinite}
 .sync-pill .dot.amber{background:var(--amber)}
+.sync-refresh{width:36px;height:36px;border-radius:50%;border:0;background:var(--surface);color:rgba(37,35,35,.6);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(23,23,23,.04);cursor:pointer;flex-shrink:0;transition:transform .15s,color .15s}
+.sync-refresh:hover{color:var(--ink)}
+.sync-refresh:active{transform:scale(.92)}
+.sync-refresh svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sync-refresh.spinning svg{animation:spin-icon .9s linear}
+@keyframes spin-icon{to{transform:rotate(360deg)}}
 /* 共享数据条（参考稿 Shared Vital Statistics Bar）：白卡三栏 + 发丝分隔 + 衬线数字 */
 .stats-bar{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;margin-top:14px;background:var(--surface);border-radius:24px;padding:16px 6px;box-shadow:var(--shadow-card)}
 .stat{border:0;background:transparent;display:grid;justify-items:center;gap:1px;cursor:pointer;font:inherit;color:var(--ink);padding:4px 6px;transition:transform .15s}
@@ -356,15 +377,19 @@ table.admin-table th{color:var(--muted);font-weight:600}
 .stat b{font-family:var(--font-serif);font-weight:500;font-size:26px;line-height:1.15;color:var(--ink)}
 .stat b em{font-style:normal;font-size:11px;color:var(--muted);margin-left:3px;font-family:var(--font-sans);font-weight:400}
 .stat>span{font-size:11.5px;color:var(--muted)}
-.stat small{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);letter-spacing:.02em;margin-top:3px}
-.stat small i{width:6px;height:6px;border-radius:50%;flex:none}
-.st-rose{background:var(--rose-gold)}
-.st-sage{background:var(--confirmed)}
-.st-amber{background:var(--amber)}
+.stat small{display:flex;align-items:center;gap:4px;font-size:10px;letter-spacing:.02em;margin-top:3px;font-weight:600}
+.stat small svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stx-rose{color:var(--rose-gold)}
+.stx-sage{color:var(--success)}
+.stx-amber{color:var(--warning)}
 .stat-divider{width:1px;background:var(--surface-high);margin:2px 0}
-/* 待确认卡 → 参考稿 Agent Suggestion Card：暖渐变 + ✦ 徽章（须晚于 .card 声明以覆盖底色） */
+/* 待办建议卡（参考稿 AgentSuggestionCard）：✦ 徽章胶囊 + 琥珀等待态 */
 .card.pending-card{background:linear-gradient(160deg,var(--surface),rgba(248,242,242,.75));box-shadow:0 1px 2px rgba(23,23,23,.03),0 8px 20px rgba(201,136,119,.07)}
-.pending-head h3::before{content:"✦ ";color:var(--rose-accent)}
+.pending-head{align-items:center}
+.agent-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(244,221,224,.5);color:var(--brand-deep);border-radius:999px;padding:5px 13px;font-size:11px;font-weight:600;letter-spacing:.02em}
+.agent-chip b{background:var(--danger);color:#fff;border-radius:999px;min-width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;padding:0 5px}
+.agent-wait{margin-left:auto;display:flex;align-items:center;gap:5px;color:var(--warning);font-size:11px;font-weight:600}
+.agent-wait::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--amber);animation:live-pulse 2s infinite}
 
 /* ---------- 响应式：360–430px 单列不溢出；桌面居中 ---------- */
 @media (max-width:480px){

@@ -7,7 +7,7 @@
 // 弹层打开期间自动同步对方改版；新增按钮固定在列表上方；待确认超过 5 项折叠；
 // 时间线支持搜索与分页加载；旧归档可点开只读查看；日期按业务时区（北京时间）取默认值。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, Chip, EmptyState, BookIcon, GiftIcon, BellIcon, StageArt, anchorStatusChip, zhDate } from "../ui";
+import { Button, Card, Chip, EmptyState, BookIcon, GiftIcon, BellIcon, HeartIcon, CheckIcon, Avatar, StageArt, anchorStatusChip, zhDate } from "../ui";
 import { Modal } from "../modal";
 import { getV2, postV2 } from "../../lib/client/v2-api";
 import { demoImageLibrary } from "../../lib/repositories/demo-images";
@@ -97,6 +97,9 @@ export function UsTab({ view, user, busy, act, switchTab }: {
   }
 
   const space = rel.spaceSettings;
+  // v2.9 第五轮：轨道舞台的对方头像（取自了解页连接资料，仅展示用途）
+  const partnerId = rel.members.find(m => m !== view.me.id);
+  const partnerAvatar = view.know.connections.find(c => c.userId === partnerId)?.profile?.avatar;
   const timeline = keyword || dateFilter ? allTimeline.filter(t =>
     (!keyword || t.title.toLowerCase().includes(keyword) || t.subtitle.toLowerCase().includes(keyword))
     && (!dateFilter || t.dateLabel.includes(dateFilter))) : allTimeline;
@@ -106,37 +109,41 @@ export function UsTab({ view, user, busy, act, switchTab }: {
 
   return <>
     <div className={`us-hero theme-${space.theme}`}>
-      {/* v2.9：交错双环水印（Consensus Bell 轨道舞台 · 纯装饰） */}
-      <svg className="hero-rings" viewBox="0 0 120 120" fill="none" aria-hidden="true">
-        <defs>
-          <linearGradient gradientUnits="userSpaceOnUse" id="hbHeroBand" x1="18" x2="102" y1="18" y2="102">
-            <stop offset="0" stopColor="#FFFFFF" /><stop offset=".35" stopColor="#F4DDE0" />
-            <stop offset=".7" stopColor="#C98877" /><stop offset="1" stopColor="#E7B7A8" />
-          </linearGradient>
-        </defs>
-        <ellipse cx="60" cy="106" fill="#252323" opacity=".06" rx="30" ry="6" />
-        <circle cx="52" cy="56" r="31" stroke="url(#hbHeroBand)" strokeWidth="7.5" />
-        <circle cx="77" cy="64" opacity=".92" r="23" stroke="url(#hbHeroBand)" strokeWidth="6" />
-        <circle cx="49" cy="26" fill="#FFFFFF" r="2.6" />
-      </svg>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <p className="eyebrow" style={{ marginTop: 0 }}>{space.name}</p>
-          <div className="us-monogram">
-            {rel.members.map(m => rel.nicknameOf?.[m] ?? m).map((name, i) => (
-              <span key={i}>{i > 0 && <em aria-hidden="true">✕</em>}{name}</span>
-            ))}
-          </div>
-          <div className="us-days">{rel.status === "married" ? "已婚（应用内标记）" : space.showDays ? `我们的第 ${view.us.daysTogether ?? 1} 天` : "我们的空间"}</div>
-          {space.showDays && <p className="muted">{view.us.nextAnniversaryInDays !== null ? `下一个纪念日还有 ${view.us.nextAnniversaryInDays} 天` : ""}{rel.startedAt ? ` · 自 ${zhDate(rel.startedAt)}` : ""}</p>}
-        </div>
-        <div style={{ display: "grid", gap: 4, justifyItems: "end" }}>
-          <button className="text-button" onClick={() => setSpaceOpen(true)}>空间设置</button>
-          <button className="text-button" onClick={() => setEndOpen(true)}>关系设置</button>
-        </div>
+      {/* v2.9 第五轮：轨道关系舞台居中重构（参考稿 Orbital Relationship Stage） */}
+      <div className="hero-actions">
+        <button className="text-button" onClick={() => setSpaceOpen(true)}>空间设置</button>
+        <button className="text-button" onClick={() => setEndOpen(true)}>关系设置</button>
       </div>
-      <div className="status-line">
-        <Chip tone="brand">{rel.status === "married" ? "应用内已婚标记（非婚姻核验）" : "在一起"}</Chip>
+      <p className="eyebrow" style={{ margin: 0 }}>{space.name}</p>
+      <div className="hero-couple">
+        <span className="hero-avatar"><Avatar value={view.me.profile.avatar} size={50} /></span>
+        <span className="hero-heart" aria-hidden="true"><HeartIcon /></span>
+        <span className="hero-avatar"><Avatar value={partnerAvatar} size={50} /></span>
+      </div>
+      <div className="us-monogram">
+        {rel.members.map(m => rel.nicknameOf?.[m] ?? m).map((name, i) => (
+          <span key={i}>{i > 0 && <em aria-hidden="true">✕</em>}{name}</span>
+        ))}
+      </div>
+      <p className="hero-sublabel">{rel.status === "married" ? "应用内已婚标记 · 非婚姻核验" : rel.startedAt ? `在一起 · 自 ${zhDate(rel.startedAt)}` : "在一起"}</p>
+      <div className="hero-stage">
+        <svg className="hero-rings" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient gradientUnits="userSpaceOnUse" id="hbHeroBand" x1="18" x2="102" y1="18" y2="102">
+              <stop offset="0" stopColor="#FFFFFF" /><stop offset=".35" stopColor="#F4DDE0" />
+              <stop offset=".7" stopColor="#C98877" /><stop offset="1" stopColor="#E7B7A8" />
+            </linearGradient>
+          </defs>
+          <ellipse cx="60" cy="106" fill="#252323" opacity=".06" rx="30" ry="6" />
+          <circle cx="52" cy="56" r="31" stroke="url(#hbHeroBand)" strokeWidth="7.5" />
+          <circle cx="77" cy="64" opacity=".92" r="23" stroke="url(#hbHeroBand)" strokeWidth="6" />
+          <circle className="gem" cx="49" cy="26" fill="#FFFFFF" r="2.6" />
+        </svg>
+        <span className="hero-bound"><i aria-hidden="true" />{rel.status === "married" ? "已婚标记" : "在一起"}</span>
+      </div>
+      <div className="us-days">{rel.status === "married" ? "已婚（应用内标记）" : space.showDays ? `我们的第 ${view.us.daysTogether ?? 1} 天` : "我们的空间"}</div>
+      {space.showDays && view.us.nextAnniversaryInDays !== null && <p className="muted center">下一个纪念日还有 {view.us.nextAnniversaryInDays} 天</p>}
+      <div className="status-line" style={{ justifyContent: "center" }}>
         <Chip tone="outline">存证范围：双方确认后可选择</Chip>
       </div>
     </div>
@@ -146,19 +153,19 @@ export function UsTab({ view, user, busy, act, switchTab }: {
       <button type="button" className="stat" onClick={() => setFilter("diary")}>
         <b className="num">{allTimeline.filter(t => t.type === "diary").length}</b>
         <span>共同日记</span>
-        <small><i className="st-rose" aria-hidden="true" />我们的故事</small>
+        <small className="stx-rose"><BookIcon />我们的故事</small>
       </button>
       <div className="stat-divider" aria-hidden="true" />
       <button type="button" className="stat" onClick={() => setFilter("promise")}>
         <b className="num">{view.us.promises.length}</b>
         <span>重要承诺</span>
-        <small><i className="st-sage" aria-hidden="true" />{view.us.promises.some(p => p.status === "active") ? "履行中" : "已立下"}</small>
+        <small className="stx-sage"><CheckIcon />{view.us.promises.some(p => p.status === "active") ? "履行中" : "已立下"}</small>
       </button>
       <div className="stat-divider" aria-hidden="true" />
       <button type="button" className="stat" onClick={() => switchTab("future")}>
         <b className="num">{view.future.plan?.investedTotal ?? 0}<em>点</em></b>
         <span>相守托管</span>
-        <small><i className="st-amber" aria-hidden="true" />{view.future.plan ? "共同成长" : "待开启"}</small>
+        <small className="stx-amber"><GiftIcon />{view.future.plan ? "共同成长" : "待开启"}</small>
       </button>
     </div>
 
@@ -185,9 +192,10 @@ export function UsTab({ view, user, busy, act, switchTab }: {
 
     {(pendingItems.length > 0 || pendingInvite) && <Card className="tight pending-card">
       <div className="pending-head">
-        <h3>待确认 <span className="pending-count">{pendingItems.length + (pendingInvite ? 1 : 0)}</span></h3>
-        <small className="muted">这些事项等待你处理；确认后自动移出{pendingItems.length > PENDING_PREVIEW ? "（默认只显示前几项）" : ""}</small>
+        <span className="agent-chip">✦ 待办提醒{pendingItems.length + (pendingInvite ? 1 : 0) > 0 && <b>{pendingItems.length + (pendingInvite ? 1 : 0)}</b>}</span>
+        <span className="agent-wait">等待你的回应</span>
       </div>
+      <small className="muted">这些事项等待你处理；确认后自动移出{pendingItems.length > PENDING_PREVIEW ? "（默认只显示前几项）" : ""}</small>
       {pendingInvite && <button className="pending-item" onClick={() => switchTab("know")}>
         <span className="t-icon"><BellIcon /></span>
         <span className="t-main"><strong>关系邀请待回应</strong><small>TA 邀请你建立关系，点这里去了解页回应</small></span>
